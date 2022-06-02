@@ -1,0 +1,124 @@
+---
+title: "Yomi approach"
+author: "Arvid J. Kingl"
+output: html_document
+---
+
+## Generic Setting
+
+We are looking to approximate optimal play on a two player zero-sum game with incomplete information.
+
+At each point each player has a hand of cards out of a finite deck $C^i$. Let $H_i = \{C^i_{h_j}, C^i_{h_j} \in \mathbb{C}^i\}, \|H_i\| = d_i$ be the hand of player $i$ of size $d_i$. The decks of the two players do not have to be the same. 
+In each round, both players choose one of the cards $C^i_j \in H^i$ from their hand simultaneously.
+The payoff function $A^i(\cdot, \cdot)$ is symmetric, .i.e.
+$$A^1(C^1_k, C^2_j) = -A^2(C^1_k, C^2_j).$$
+
+Afterwards, the hand is replenished with a new card from the respective decks.
+The play could go on until the decks are used up, or another finishing condition is met.
+
+If both hands $H^1, H^2$ were known to each player, then the players would know the payoff matrices $\mathbf{A}^i \in \mathbb{R}^{d_1\times d_2}$
+
+$$
+\mathbf{A}^1 = \left(
+\begin{array}{c}
+A^1(C^1_{h^1_1}, C^2_{h^2_1}) & A^1(C^1_{h^1_1}, C^2_{h^2_2}) & \cdots & A^1(C^1_{h^1_1}, C^2_{h^2_{d_2}}) \\
+A^1(C^1_{h^1_2}, C^2_{h^2_1}) & A^1(C^1_{h^1_2}, C^2_{h^2_2}) & \cdots & A^1(C^1_{h^1_2}, C^2_{h^2_{d_2}}) \\
+\vdots &  & \ddots & \vdots \\
+A^1(C^1_{h^1_{d_1}}, C^2_{h^2_1}) & A^1(C^1_{h^1_2}, C^2_{h^2_2}) & \cdots & A^1(C^1_{h^1_{d_1}}, C^2_{h^2_{d_2}})
+\end{array}
+\right) \\
+\mathbf{A^2} = - \mathbf{A^1}
+$$
+and a Nash optimal strategy can be found for each player $s^*_1, s^*_2$, such that we have for the utilities
+$$U_1 = s_1A^1s_2, U_2 = s_1A^2s_2$$
+$$\nabla_{s_1}U_1(s^*_1,s^*_2) = \nabla_{s_2}U_2(s^*_1,s^*_2) = 0 $$
+and 
+$$\Delta_{s_1} U_1(s^*_1,s^*_2) < 0 \\
+\Delta_{s_2} U_2(s^*_1,s^*_2) < 0$$
+i.e. both players would locally fair worse now if they changed their strategy infinitesimally, when the other player leaves his strategy the same. Generically we have that the optimum strategies $s^*_{1/2}$ are functions of the payoff matrices using the Nash algorithm
+
+$$s_1, s_2 = Nash(\mathbf{A}^1, \mathbf{A^2})$$
+
+### Incomplete player information
+
+In a first complication we assume that the payout functions $A^{1/2}$ stay the same and are constant, but the exact hand of the other player is unknown, but the hand size and the discard and overall distribution of cards of the other player. Let $I_i$ be the totality of information about the state of the world of player $i$. This information is known to each player though, so player $i$ knows what player $-i$ knows about player $i$'s hand, despite him having an obviously better, more precise notion of his own hand. 
+
+Our approach assumes that each player has a model of the other players hand distribution 
+$$H^{-i} \sim  P(H_{-i} | I_{i})$$
+from which he can sample hands $\hat{H}^{-i}_j , 1 \leq j \leq N_{sample}.$
+At the same time, each player has access to the model the other side has of their hand given the information that the other player has access to.
+$$H^{i} \sim  P(H_{i} | I_{-i})$$
+For each sample of $H^{-i}_j$ he can calculate **his** payoff matrix $\mathbf{A}^1_j$.
+At the same time player $i$ also knows what common information $I_{-i}$  the other player has.
+So he can sample $N_{sample}$ hands of his own hands, sampled from the model $P(H_{i} | I_{-i})$.
+For each such sample $H^{-i}_j$ of the other's hand and each sample of their own hand $H^i_k$, sampled from the incomplete information $I_{-i}$, the player can simulate payoff matrices of the **other** player $\mathbf{A}^{-i}(H^i_K, H^{-i}_j)$. A pair combination of his his own payoff matrix and the other's payoff matrix can be Nash solved.
+
+Because the hands are independent from each other when conditioned on the available information $I_i,I_{-i}$ their probability distributions factorise. This suggests that player $i$'s approximate best strategy under common states of knowledge is
+
+$$\hat{s}^*_i, \_  \\
+=  \sum_{H^{-i}} \sum_{H^{i}}  P(H^{-i}|I_i) P(H^{i}|I_{-i}) Nash(A^i(H^i_{true}, H^{-i}_j), A^{-i}(H^i_k, H^{-i}_j))\\ 
+\approx \frac{1}{N^2_{sample}}\sum_j \sum_k Nash(A^i(H^i_{true}, H^{-i}_j), A^{-i}(H^i_k, H^{-i}_j)).$$
+
+It should be possible to rigorously proof that such an approximation for large sample sizes and accurate models $P^i, P^{-i}$ should be indeed optimal conditional on the information each player posesses.
+
+For this approach to work, we need to train models $P^i(I^{-i}), P^{-i}(I^i)$. 
+
+The algorithm to do so would be to:
+
+1. Initialise $P^{-i}(I^{i}), P^i(I^{-i})$ with a simple model (say equal distribution)
+2. Play $N_{epoch}$ games, which generates new data $H(i) \sim f(I)$ using the existing model. In each epoch and for each game step inside the epoch:
+    - Generate $\hat{H}^{-i} \sim P^{-i}(I^{i})$ $N_{sim}$ times
+    - Generate $\hat{H}^{i} \sim P^{i}(I^{-i})$ $N_{sim}$ times
+    - Calculate $\hat{A}^{i}(H^i, \hat{H}^{-i})$ $N_sim$ times
+    - Calculate $\hat{A}^{-i}(\hat{H}^i, \hat{H}^{-i})$ $N_{sim}$ times
+    - Calculate the Nash optimal policies $s^i$ $N_{sim} \times N_{sim}$ using the sampled payoff matrices $s^*_i \sim Nash(\hat{A}^{i}, \hat{A}^{-i})$
+    - Each player plays according to their average optimal policy $\left< s^*_i\right>$ until each game stops.
+3. Train models to predict distributions $P^{-i}(I^{i}), P^i(I^{-i})$
+4. Repeat steps 2 and 3 until convergence.
+
+### Simple game
+
+Each player has a finite set of 9 cards. Each one has three rocks, three papers and three scissors.
+On top of that, each of the flavour comes in three sizes, small(1), medium(2) and large(3).
+The classical rules are obeyed
+
+- Rock beats scissors
+- Scissors beats paper
+- Paper beats rock
+
+If two cards of the same flavour collide, then the bigger one wins. This makes the larger cards more valuable than their smaller counterparts, as they can beat more of the other cards.
+The payouts are such that beating the enemy with a smaller card gives a higher payout. For example a large rock beats any scissor and most other scissors, but only gains a value of 1. A medium flavour gets 2, if it wins, and a small flavor 3. Exact ties (e.g. small rock vs. small rock) result in no scores.
+The game runs until all the cards are used up. The player with the higher score wins.
+
+## Unknown Valuation functions
+
+In practice, the exact valuation function is also not always known. For example in the game Yomi, the direct consequences of each action, such as loss in hp, additional card draws etc, are known, their value towards winning or losing a game, which is a sequence of valuations until stopping occurs, are not exactly known. 
+The exact value of $A^i_{j,k}= A^i(H^i_j, H^j_k)$ is a function of the remaining hands and decks $A^i_{j,k} = A^1(H^i_j, H^j_k, H^i_{-j},I_i).$
+Such a function can iteratively learned by simulating game states and modelling the probability of winning a game given the remainder of the hand. 
+$$\hat{p}_i = f_i(I^i).$$
+
+If both players reveal their cards $H^i_j, H^{-i}_k$, the game is progressed and a clear update happens to $I^i \rightarrow I^{i}_{ij}.$
+An element in the payoff matrix can then be evaluated as
+$$A^i(H^i_j, H^{-i}_k, I^i) = f_i(H^i_{-j},H^{-i}_{-k}, I^i_{ij}) - f_i(H^i,I^i)$$
+A similar construction could be used to evaluate  $A^{-i}$, where as before $H^i$ is sampled with information following $I^{-i}$, and then evaluated by measuring the differential change in probability for $f_{-i}$ under the update to $I^{-i} \rightarrow I^{-i}_{jk}.$
+The change does not even have to be the difference in probability, but might as well be some distance functional $$A^1_{jk} = d(p^{jk}_{i},p_i)$$
+$$A^2_{jk} = d(p^{jk}_{-i},p_{-i}).$$
+
+In practice this leads to the algorithm:
+
+1. Initialise $P^i(I^{-i}), P^i(I^{-i})$ with a simple model (say equal distribution). Also train models $f_i(H^i, I^i)$ and $f_{-i}( H^{-j}, I^{-i})$
+2. Play $N_{epoch}$ games, which generates new data $H(i) \sim f(I)$ and $\hat{p}_{win} \sim f_{i}(I^i)$ using the existing model. In each epoch and for each game step inside the epoch:
+    - Generate $\hat{H}^{-i} \sim P^{-i}(I^{i})$ $N_{sim}$ times
+    - Generate $\hat{H}^{i} \sim P^{i}(I^{-i})$ $N_{sim}$ times
+    - Calculate $\hat{\mathbf{A}}^{i}(H^i, \hat{H}^{-i}) = f_i(\mathbf{H}^i, \mathbf{H}^{-i}, \mathbf{I}^i) - f(H^i,I^i)$  $N_sim$ times, where $f_i(\mathbf{H}^i, \mathbf{H}^{-i}, I^i)$ are the immediate posterior valuations after each player plays their hand. 
+    - Calculate $\hat{A}^{-i}(\hat{H}^i, \hat{H}^{-i})= f_{-i}(\mathbf{H}^i, \mathbf{H}^{-i}, \mathbf{I}^{-i}) - f(H^{-i},I^{-i})$ $N_{sim}$ times
+    - Calculate the Nash optimal policies $s^i$ $N_{sim} \times N_{sim}$ using the sampled payoff matrices $s^*_i \sim Nash(\hat{A}^{i}, \hat{A}^{-i})$
+    - Each player plays according to their average optimal policy $\left< s^*_i\right>$ until each game stops.
+3. Train models to predict distributions $P^{-i}(I^{i}), P^i(I^{-i})$ as well as the respective win chances given the hands and the common information $f^i(H^i, I^i)$ and $f^{-i}(H^{-i}, I^{-i})$
+4. Repeat steps 2 and 3 until convergence.
+
+## Implementation details
+
+We certainly need to have a `Player` class which carries a shuffled instance of their `Deck` of cards. Each player also needs win attributes, for the RPS game this will be the `score`. In addition we need an `Arena` which organises the play. Each round, the `Arena` gives control to the two players, to pick a card from their `Hand`. After having received a card from each player via the `choose_card` method, the `Arena` evaluates the action with the `evaluate_result(player1_card, player2_card) -> update_dict1, update_dict2` methods and sends an update to each player (probably in the form of a dict). This means it feeds back information about score updates and what has been played by each player. Each player then updates their internal `Representation` of the other player and the state of the game. This will most likely be at the beginning only the state of the **discard pile**, which can be a dictionary of the counts.
+The `Arena` must also check for `is_game_end` and declare a winner via `winner_is` which returns `'player_1'` or `'player_2'`. Also, each player will output a list of observations/records which can later be used for additional training. 
+In the very first iteration, the `choose_card` can be just a random pick from the hand, which can be controlled by a playstyle attribute of the player. 
