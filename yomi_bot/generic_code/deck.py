@@ -37,7 +37,10 @@ class Deck(MutableSequence, ABC):
         return self.cards.__repr__()
         
     def draw(self, n):
-        removed_cards = [self.cards.pop() for _ in range(n)]
+        if len(self.cards) >= n:
+            removed_cards = [self.cards.pop() for _ in range(n)]
+        else:
+            removed_cards = [self.cards.pop() for _ in range(len(self.cards))]
         return Deck(removed_cards)
     
     def shuffle(self):
