@@ -1,4 +1,4 @@
-from yomi_bot.generic_code.players import Player
+from yomi_bot.generic_code.player import Player
 from yomi_bot.rps.rps_deck import RPSDeck
 from yomi_bot.generic_code.deck import Deck
 import random

@@ -51,6 +51,14 @@ class TestRPSDeck(unittest.TestCase):
         assert len(cards) == 9
         assert len(deck) == 0
         
+    def test_drawing_from_empty_deck_leaves_empty_hand(self):
+        deck = RPSDeck()
+        assert len(deck) == 9
+        cards = deck.draw(100)
+        assert len(deck) == 0
+        hand = deck.draw(3)
+        assert len(hand) == len(hand.cards) == 0
+            
     def test_adding_decks(self):
         deck1 = RPSDeck()
         deck2 = RPSDeck()

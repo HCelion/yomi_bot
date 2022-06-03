@@ -154,4 +154,3 @@ class TestUpdating(unittest.TestCase):
         # Test that all original cards are still in hand after drawing
         for card in original_hand:
             assert card in player.hand        
-           
