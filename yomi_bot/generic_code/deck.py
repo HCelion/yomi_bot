@@ -1,10 +1,7 @@
-from itertools import product
 import random
-from collections import namedtuple
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from abc import ABC
 
-from collections.abc import Sequence, MutableSequence
+from collections.abc import MutableSequence
 
 
 class Deck(MutableSequence, ABC):

@@ -22,7 +22,7 @@ setup(
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
     ],
-    description="Python Boilerplate contains all the boilerplate you need to create a Python package.",
+    description="Python Boilerplate contains all the boilerplate you need to\\ create a Python package.",
     install_requires=requirements,
     long_description="",
     include_package_data=True,

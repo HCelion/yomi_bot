@@ -1,7 +1,5 @@
 from yomi_bot.generic_code.player import Player
 from yomi_bot.rps.rps_deck import RPSDeck, rps_cards
-from yomi_bot.generic_code.deck import Deck
-from copy import deepcopy
 import numpy as np
 
 

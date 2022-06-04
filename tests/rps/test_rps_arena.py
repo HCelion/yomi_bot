@@ -207,7 +207,7 @@ class TestFullGame(unittest.TestCase):
 
     def test_discards_are_full(self):
         arena = RPSArena(left_strategy="random", right_strategy="random")
-        outcome = arena.play_game()
+        _ = arena.play_game()
         for card in arena.left_player.own_state["discard"]:
             # All players should agree that their and the opposing player's
             # discard are full
