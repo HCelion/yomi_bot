@@ -1,9 +1,10 @@
 from yomi_bot.rps.rps_player import RPSPlayer
+from yomi_bot.rps.rps_deck import rps_cards
 import random
+import numpy as np
 import unittest
 from copy import deepcopy
 
-rps_cards = ['R1', 'R2', 'R3', 'S1', 'S2', 'S3', 'P1', 'P2', 'P3']
 
 class TestRPSPlayerInit(unittest.TestCase):
     
@@ -203,3 +204,28 @@ class TestUpdating(unittest.TestCase):
         player.update_state(self.update_dict)
         assert player.own_state['deck_size'] == 0
         assert player.own_state['hand_size'] == 2
+
+
+class TestHandSampling(unittest.TestCase):
+    
+    def setUp(self):
+        self.empty_discard = {card:0 for card in rps_cards} 
+    
+    def test_sizes_are_correct(self):
+        sample_array = RPSPlayer.sample_hand(hand_size=3, discard=self.empty_discard, num_samples=50)
+        assert sample_array.shape == (50,3)
+    
+    def test_cards_are_contained(self):
+        np.random.seed(10)
+        sample_array = RPSPlayer.sample_hand(hand_size=3, discard=self.empty_discard, num_samples=100)
+        for card in rps_cards:
+            assert card in sample_array
+    
+    def test_items_excluded(self):
+        
+        discard = deepcopy(self.empty_discard)
+        discard['S1'] = 1
+        sample_array = RPSPlayer.sample_hand(hand_size=3, discard=discard, num_samples=100)
+        
+        assert 'S1' not in sample_array
+        
