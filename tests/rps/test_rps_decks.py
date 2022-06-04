@@ -25,7 +25,7 @@ class TestRPSDeck(unittest.TestCase):
         assert deck[0] == "R1"
         random.seed(10)
         shuffled_deck = deck.shuffled()
-        shuffled_deck[0] != "R1"
+        assert shuffled_deck[0] != "R1"
 
     def test_deck_can_be_drawn_from_while_preserving_order(self):
         deck = RPSDeck()
@@ -34,11 +34,11 @@ class TestRPSDeck(unittest.TestCase):
         assert deck[-1] == "S3"
 
         draw_cards = deck.draw(1)
-        len(draw_cards) == 1
+        assert len(draw_cards) == 1
         assert draw_cards[0] == "S3"
 
         more_cards_drawn = deck.draw(2)
-        len(more_cards_drawn) == 2
+        assert len(more_cards_drawn) == 2
         assert more_cards_drawn[0] == "S2"
         assert more_cards_drawn[1] == "S1"
 
@@ -66,4 +66,4 @@ class TestRPSDeck(unittest.TestCase):
         assert len(combined_deck) == 18
         counter = Counter(combined_deck.cards)
         for card in counter:
-            counter[card] == 2
+            assert counter[card] == 2
