@@ -218,3 +218,13 @@ class TestFullGame(unittest.TestCase):
             arena.left_player.other_state['discard'][card] == 1
             arena.right_player.own_state['discard'][card] == 1
             arena.right_player.other_state['discard'][card] == 1
+        
+        assert arena.left_player.own_state['hand_size'] == 0
+        assert arena.left_player.own_state['deck_size'] == 0
+        assert arena.left_player.other_state['hand_size'] == 0
+        assert arena.left_player.other_state['deck_size'] == 0
+
+        assert arena.right_player.own_state['hand_size'] == 0
+        assert arena.right_player.own_state['deck_size'] == 0
+        assert arena.right_player.other_state['hand_size'] == 0
+        assert arena.right_player.other_state['deck_size'] == 0

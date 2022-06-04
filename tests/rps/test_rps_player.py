@@ -50,6 +50,16 @@ class TestRPSPlayerInit(unittest.TestCase):
         player = RPSPlayer(side='right')
         assert player.side == 'right'
         assert player.other_side == 'left'
+        
+    def test_hand_size_is_initialised(self):
+        player = RPSPlayer()
+        assert player.own_state['hand_size'] == 3
+        assert player.other_state['hand_size'] == 3
+    
+    def test_deck_size_is_initialised(self):
+        player = RPSPlayer()
+        assert player.own_state['deck_size'] == 6
+        assert player.other_state['deck_size'] == 6
 
 
 class TestPlaying(unittest.TestCase):
@@ -153,4 +163,43 @@ class TestUpdating(unittest.TestCase):
         
         # Test that all original cards are still in hand after drawing
         for card in original_hand:
-            assert card in player.hand        
+            assert card in player.hand
+            
+    def test_hand_deck_sizes_update_correctly_left(self):
+        player = RPSPlayer(side='left')
+        assert player.own_state['hand_size'] == 3
+        assert player.own_state['deck_size'] == 6
+        assert player.other_state['hand_size'] == 3
+        assert player.other_state['deck_size'] == 6
+        
+        player.update_state(self.update_dict)
+        
+        assert player.own_state['hand_size'] == 3 # Discard 2, draw 2
+        assert player.own_state['deck_size'] == 4
+        assert player.other_state['hand_size'] == 2 # Discard 2, draw 1
+        assert player.other_state['deck_size'] == 5
+
+            
+    def test_hand_deck_sizes_update_correctly_right(self):
+        player = RPSPlayer(side='right')
+        assert player.own_state['hand_size'] == 3
+        assert player.own_state['deck_size'] == 6
+        assert player.other_state['hand_size'] == 3
+        assert player.other_state['deck_size'] == 6
+        
+        player.update_state(self.update_dict)
+        
+        assert player.own_state['hand_size'] == 2 
+        assert player.own_state['deck_size'] == 5
+        assert player.other_state['hand_size'] == 3 
+        assert player.other_state['deck_size'] == 4
+        
+    def test_overdrawing(self):
+        player = RPSPlayer(side='left')
+        player.own_state['deck_size'] = 1
+        assert player.own_state['hand_size'] == 3
+        
+        # Player draws 2, but has only 1 in deck, and discards 2
+        player.update_state(self.update_dict)
+        assert player.own_state['deck_size'] == 0
+        assert player.own_state['hand_size'] == 2

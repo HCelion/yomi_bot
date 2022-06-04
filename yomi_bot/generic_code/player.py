@@ -17,15 +17,20 @@ class Player(ABC):
         else:
             self.other_side = 'left'
             
-        self.own_state = {}
-        self.other_state = {}
-        self.own_state['discard'] = {card:0 for card in self.deck_generator()}
-        self.other_state['discard'] = {card:0 for card in self.deck_generator()}
+        self.own_state = self.generate_initial_state()
+        self.other_state = self.generate_initial_state()
     
     @property
     @abstractmethod
     def deck_generator(self):
         pass
+    
+    @abstractmethod
+    def generate_initial_state(self):
+        ...
+        
+    def initialise_discard(self):
+        return {card:0 for card in self.deck_generator()}
 
     @abstractmethod
     def choose_card(self):
@@ -33,11 +38,11 @@ class Player(ABC):
     
     def update_state(self, update_dict):
         # Updates internal representations of self and other
-        self.update_specific_state(update_dict[self.side]['state'], self.own_state)
-        self.update_specific_state(update_dict[self.other_side]['state'], self.other_state)
+        self.update_specific_state(update_dict[self.side], self.own_state)
+        self.update_specific_state(update_dict[self.other_side], self.other_state)
     
         # Run assigned actions only for self
-        self.run_assigned_actions(update_dict[self.side]['actions'])
+        self.run_assigned_actions(update_dict[self.side])
     
     @abstractmethod
     def update_specific_state(self, state_update_dict, state):
