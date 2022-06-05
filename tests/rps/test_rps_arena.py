@@ -1,5 +1,5 @@
 import unittest
-from yomi.rps.rps_arena import RPSArena
+from src.rps.rps_arena import RPSArena
 import random
 
 

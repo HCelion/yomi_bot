@@ -1,5 +1,5 @@
-from yomi.rps.rps_player import RPSPlayer
-from yomi.rps.rps_deck import rps_cards
+from src.rps.rps_player import RPSPlayer
+from src.rps.rps_deck import rps_cards
 import random
 import numpy as np
 import unittest
