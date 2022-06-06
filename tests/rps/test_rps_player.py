@@ -1,9 +1,14 @@
 from src.rps.rps_player import RPSPlayer
 from src.rps.rps_deck import rps_cards
+import src.rps.rps_rules as rps
 import random
 import numpy as np
-import unittest
 from copy import deepcopy
+import unittest
+import warnings
+
+warnings.simplefilter("ignore")
+np.seterr(all="ignore")
 
 
 class TestRPSPlayerInit(unittest.TestCase):
@@ -230,3 +235,63 @@ class TestHandSampling(unittest.TestCase):
         )
 
         assert "S1" not in sample_array
+
+
+class TestBestPlay(unittest.TestCase):
+    def setUp(self):
+        self.payoff_lookup = rps.generate_rps_payoff_lookup()
+        self.empty_discard = {card: 0 for card in rps_cards}
+
+    def test_payoff_matrix_is_correct(self):
+        left_hand = ["S1", "S2", "S3"]
+        right_hand = ["S2", "P1"]
+
+        left_payoff, right_payoff = RPSPlayer.build_payoff_matrices(
+            left_hand, right_hand, self.payoff_lookup
+        )
+
+        assert left_payoff.shape == right_payoff.shape == (3, 2)
+
+        ideal_left_result = np.array([[-2, +3], [0, +2], [+1, +1]])
+
+        self.assertEqual(np.abs(left_payoff - ideal_left_result).sum(), 0)
+        # right matrix shoudl be just the negative of the left matrix
+        self.assertEqual(np.abs(right_payoff + ideal_left_result).sum(), 0)
+
+    def test_nash_vector_extraction(self):
+        left_hand = ["S1", "S2", "S3"]
+        right_hand = ["S2", "P1"]
+
+        left_payoff, right_payoff = RPSPlayer.build_payoff_matrices(
+            left_hand, right_hand, self.payoff_lookup
+        )
+
+        left_balance, right_balance, num_results = RPSPlayer.calculate_nash_equilibrium(
+            left_payoff, right_payoff
+        )
+        assert len(left_balance) == 3
+        assert len(right_balance) == 2
+        assert num_results == 1
+
+        assert left_balance.sum() == 1
+        assert right_balance.sum() == 1
+
+        # S3 is the doiminant strategy for left, S2 for right
+        assert np.sum(left_balance - np.array([0, 0, 1])) == 0
+        assert np.sum(right_balance - np.array([1, 0])) == 0
+
+    def test_simulate_best_strategy(self):
+        own_hand = ["S1", "S2"]
+        own_state = {"hand_size": 2, "discard": self.empty_discard}
+        other_state = {"hand_size": 1, "discard": self.empty_discard}
+        strategy = RPSPlayer.simulate_best_strategy(
+            own_hand=own_hand,
+            own_state=own_state,
+            other_state=other_state,
+            payoff_lookup=self.payoff_lookup,
+            num_simulations=20,
+        )
+
+        assert len(strategy) == 2
+        self.assertAlmostEqual(sum(strategy), 1)
+        assert strategy[0] >= strategy[1]

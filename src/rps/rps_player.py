@@ -2,6 +2,8 @@ from src.generic_code.player import Player
 from src.rps.rps_deck import RPSDeck, rps_cards
 import src.rps.rps_rules as rps
 import numpy as np
+from typing import Iterable
+import nashpy as nash
 
 
 class RPSPlayer(Player):
@@ -63,5 +65,70 @@ class RPSPlayer(Player):
         return sample_array
 
     @staticmethod
-    def build_payoff_matrix(left_hand: np.array, right_hand: np.array):
-        pass
+    def build_payoff_matrices(left_hand: Iterable, right_hand: Iterable, payoff_lookup):
+        """Assumes a priori no A=-B symmetry of payoffs"""
+        height = len(left_hand)
+        width = len(right_hand)
+        left_matrix = np.zeros((height, width))
+        right_matrix = np.zeros((height, width))
+
+        for row_index, left_card in enumerate(left_hand):
+            for col_index, right_card in enumerate(right_hand):
+                left_matrix[row_index, col_index] = payoff_lookup[
+                    (left_card, right_card)
+                ]["left"]
+                right_matrix[row_index, col_index] = payoff_lookup[
+                    (left_card, right_card)
+                ]["right"]
+
+        return left_matrix, right_matrix
+
+    @staticmethod
+    def calculate_nash_equilibrium(left_payoff, right_payoff):
+        game = nash.Game(left_payoff, right_payoff)
+        results = list(game.support_enumeration())
+        number_of_results = len(results)
+        left_vector = np.sum([res[0] for res in results], axis=0) / number_of_results
+        right_vector = np.sum([res[1] for res in results], axis=0) / number_of_results
+
+        return left_vector, right_vector, number_of_results
+
+    @staticmethod
+    def simulate_best_strategy(
+        own_hand, own_state, other_state, payoff_lookup, num_simulations=5
+    ):
+        own_hand_size = own_state["hand_size"]
+        own_discard = own_state["discard"]
+        other_hand_size = other_state["hand_size"]
+        other_discard = other_state["discard"]
+        other_hand_simulation = RPSPlayer.sample_hand(
+            hand_size=other_hand_size,
+            discard=other_discard,
+            num_samples=num_simulations,
+        )
+        own_hand_simulation = RPSPlayer.sample_hand(
+            hand_size=own_hand_size, discard=own_discard, num_samples=num_simulations
+        )
+
+        nash_vectors = []
+
+        for i in range(num_simulations):
+            left_payoff, _ = RPSPlayer.build_payoff_matrices(
+                left_hand=own_hand,
+                right_hand=other_hand_simulation[i, :],
+                payoff_lookup=payoff_lookup,
+            )
+            for j in range(num_simulations):
+                _, right_payoff = RPSPlayer.build_payoff_matrices(
+                    left_hand=own_hand_simulation[j, :],
+                    right_hand=other_hand_simulation[i, :],
+                    payoff_lookup=payoff_lookup,
+                )
+                nash_vector, _, num_results = RPSPlayer.calculate_nash_equilibrium(
+                    left_payoff, right_payoff
+                )
+                if num_results == 1:
+                    nash_vectors.append(nash_vector)
+
+        average_strategy = np.mean(nash_vectors, axis=0)
+        return average_strategy
