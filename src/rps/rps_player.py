@@ -1,5 +1,6 @@
 from src.generic_code.player import Player
 from src.rps.rps_deck import RPSDeck, rps_cards
+import src.rps.rps_rules as rps
 import numpy as np
 
 
@@ -11,6 +12,7 @@ class RPSPlayer(Player):
         self, hand_size: int = 3, strategy: str = "best_play", side: str = "left"
     ):
         super().__init__(hand_size=hand_size, strategy=strategy, side=side)
+        self.payoff_lookup = rps.generate_rps_payoff_lookup()
 
     def generate_initial_state(self) -> dict:
         state = {}
@@ -59,3 +61,7 @@ class RPSPlayer(Player):
             sample_array[i, :] = np.random.choice(cards_to_sample, size=hand_size)
 
         return sample_array
+
+    @staticmethod
+    def build_payoff_matrix(left_hand: np.array, right_hand: np.array):
+        pass

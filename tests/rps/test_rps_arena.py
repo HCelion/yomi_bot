@@ -116,50 +116,6 @@ class TestRPSEvaluations(unittest.TestCase):
         assert len(outcome["right"]["state"]["discards"]) == 1
         assert outcome["right"]["state"]["discards"][0] == "S2"
 
-    def test_determine_score(self):
-
-        left_score, right_score = self.arena.determine_score("left", 3, 1)
-        assert left_score == 1
-        assert right_score == 0
-
-        left_score, right_score = self.arena.determine_score("left", 2, 1)
-        assert left_score == 2
-        assert right_score == 0
-
-        left_score, right_score = self.arena.determine_score("left", 3, 1)
-        assert left_score == 1
-        assert right_score == 0
-
-        left_score, right_score = self.arena.determine_score("right", 3, 1)
-        assert left_score == 0
-        assert right_score == 3
-
-        left_score, right_score = self.arena.determine_score("right", 3, 2)
-        assert left_score == 0
-        assert right_score == 2
-
-        left_score, right_score = self.arena.determine_score("right", 3, 3)
-        assert left_score == 0
-        assert right_score == 1
-
-        left_score, right_score = self.arena.determine_score("draw", 5, 5)
-        assert left_score == 0
-        assert right_score == 0
-
-    def test_suite_winners(self):
-        winner = self.arena.determine_suit_winner("R", "P")
-        assert winner == "right"
-        winner = self.arena.determine_suit_winner("R", "S")
-        assert winner == "left"
-        winner = self.arena.determine_suit_winner("P", "R")
-        assert winner == "left"
-        winner = self.arena.determine_suit_winner("P", "S")
-        assert winner == "right"
-        winner = self.arena.determine_suit_winner("S", "R")
-        assert winner == "right"
-        winner = self.arena.determine_suit_winner("S", "P")
-        assert winner == "left"
-
     def test_one_round_win_by_rank(self):
         outcome = self.arena.evaluate_round_outcome("R1", "R3")
         assert outcome["winner"] == "right"
