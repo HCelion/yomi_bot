@@ -5,6 +5,7 @@ import numpy as np
 from typing import Iterable
 import pygambit
 
+
 class RPSPlayer(Player):
 
     deck_generator = RPSDeck
@@ -84,32 +85,34 @@ class RPSPlayer(Player):
 
     @staticmethod
     def calculate_nash_equilibrium(left_payoff, right_payoff):
-        
+
         # We have to round the matrices to integer values
-        left_payoff = (left_payoff*1000).astype('int')
+        left_payoff = (left_payoff * 1000).astype("int")
         left_payoff = left_payoff.astype(dtype=pygambit.Rational)
-        right_payoff = (right_payoff*1000).astype('int')
+        right_payoff = (right_payoff * 1000).astype("int")
         right_payoff = right_payoff.astype(dtype=pygambit.Rational)
-        
+
         left_hand_size = left_payoff.shape[0]
         right_hand_size = left_payoff.shape[1]
-        
-        game = pygambit.Game.from_arrays(left_payoff,-right_payoff)
+
+        game = pygambit.Game.from_arrays(left_payoff, -right_payoff)
         solver = pygambit.nash.ExternalLCPSolver()
-        
+
         result = solver.solve(game)[0]
-        
+
         left_vector = np.zeros(left_hand_size)
         right_vector = np.zeros(right_hand_size)
 
         for i in range(left_hand_size):
             left_vector[i] = result[i]
-        for i,j in enumerate(range(left_hand_size, (left_hand_size+right_hand_size))):
+        for i, j in enumerate(
+            range(left_hand_size, (left_hand_size + right_hand_size))
+        ):
             right_vector[i] = result[j]
-        
-        left_vector = left_vector/left_vector.sum()
-        right_vector = right_vector/right_vector.sum()
-        
+
+        left_vector = left_vector / left_vector.sum()
+        right_vector = right_vector / right_vector.sum()
+
         return left_vector, right_vector, 1
 
     @staticmethod
