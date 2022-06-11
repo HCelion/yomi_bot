@@ -37,7 +37,7 @@ $$\Delta_{s_1} U_1(s^*_1,s^*_2) < 0 \\
 \Delta_{s_2} U_2(s^*_1,s^*_2) < 0$$
 i.e. both players would locally fair worse now if they changed their strategy infinitesimally, when the other player leaves his strategy the same. Generically we have that the optimum strategies $s^*_{1/2}$ are functions of the payoff matrices using the Nash algorithm
 
-$$s_1, s_2 = Nash(\mathbf{A}^1, \mathbf{A^2})$$
+$$s_1, s_2 = Nash(\mathbf{A}^1, \mathbf{A}^2)$$
 
 ### Incomplete player information
 
@@ -110,12 +110,36 @@ In practice this leads to the algorithm:
 2. Play $N_{epoch}$ games, which generates new data $H(i) \sim f(I)$ and $\hat{p}_{win} \sim f_{i}(I^i)$ using the existing model. In each epoch and for each game step inside the epoch:
     - Generate $\hat{H}^{-i} \sim P^{-i}(I^{i})$ $N_{sim}$ times
     - Generate $\hat{H}^{i} \sim P^{i}(I^{-i})$ $N_{sim}$ times
-    - Calculate $\hat{\mathbf{A}}^{i}(H^i, \hat{H}^{-i}) = f_i(\mathbf{H}^i, \mathbf{H}^{-i}, \mathbf{I}^i) - f(H^i,I^i)$  $N_sim$ times, where $f_i(\mathbf{H}^i, \mathbf{H}^{-i}, I^i)$ are the immediate posterior valuations after each player plays their hand. 
+    - Calculate $\hat{\mathbf{A}}^{i}(H^i, \hat{H}^{-i}) = f_i(\mathbf{H}^i, \mathbf{H}^{-i}, \mathbf{I}^i) - f(H^i,I^i)$  $N_{sim}$ times, where $f_i(\mathbf{H}^i, \mathbf{H}^{-i}, I^i)$ are the immediate posterior valuations after each player plays their hand. 
     - Calculate $\hat{A}^{-i}(\hat{H}^i, \hat{H}^{-i})= f_{-i}(\mathbf{H}^i, \mathbf{H}^{-i}, \mathbf{I}^{-i}) - f(H^{-i},I^{-i})$ $N_{sim}$ times
     - Calculate the Nash optimal policies $s^i$ $N_{sim} \times N_{sim}$ using the sampled payoff matrices $s^*_i \sim Nash(\hat{A}^{i}, \hat{A}^{-i})$
     - Each player plays according to their average optimal policy $\left< s^*_i\right>$ until each game stops.
 3. Train models to predict distributions $P^{-i}(I^{i}), P^i(I^{-i})$ as well as the respective win chances given the hands and the common information $f^i(H^i, I^i)$ and $f^{-i}(H^{-i}, I^{-i})$
 4. Repeat steps 2 and 3 until convergence.
+
+## Simplified Nash finding
+
+The above algorithms find the Nash equilibrium for mixtures of payoff matrices that are not zero-sum, despite it being a zero sum game. This is expensive and the solutions are not always unique. Instead, a number of alternative calculations for the Nash step can be implemented.
+In a first schema, player `i` could simulate the hands of player `-i` and see how player `-i` would react to his hand given the circumstances. At each point, we have that `\mathbf{A}^i = -\mathbf{A}^{-i}`. Finally his strategy would be the average of strategies over $H^{-i}$
+
+$$s^i, \_ = \frac{1}{N_{sim}} \sum_{j \in N_{sim}} Nash\left(\mathbf{A}^i(H^i,H^{-i}_j),- \mathbf{A}^i(H^i,H^{-i}_j) \right).$$
+This calculates the result faster, but makes the inappropriate assumption that player `-i` would know what the hand $H^i$ is about. Especially when $H^i$ is an unlikey hand, the simulated response is biased towards information the opponent does not have.
+
+The previous approach can be rectified by simulating hands only from incomplete information $H^i\sim f(I^{-i})$ and $H^{-i} \sim f(I^i)$. Rather than calculating the best play directly, the optimal plays for $-i$ are sampled. Because the nature (but not the number) of the cards in hand $H^{-i}$ varies, the resultant optimal strategy vectors $s^{-i}$ are non-overlapping. This is not a problem, as the optimal strategies can be seen as masked versions of a complete vector in a bigger strategy space where the cards not in hand are masked out. 
+From this collection of vectors, player $i$ approximates the probabilities with which player $-i$ would play a card $C_k$. These probabilities are different from the raw probabilities for the cards to be in $H^{-i}$ because player $-i$ might benefit more from playing certain cards rather than others.
+In practice this would lead to the algorithm
+
+1. Initialise a lookup table such that $lookup[C_k]=0 \forall C_k \in D^{-i} \setminus \mbox{Discard}^{-i}$ such that all cards of player $-i$ that can possibly be played get initialised.
+2. Simulate $N_{sim}$ times $H^i \sim f(I^{-i})$ and $H^{-i} \sim f(I^i).$
+3. Calculate for each sampled hand $H^i_j \in \{H^i\}$ and  $H^{-i}_l \in \{H^{-i}\}$   
+$$\_,s^{-i}_{jl} = Nash(\mathbf{A}^i(H^i_j,H^{-i}_l), -\mathbf{A}^i(H^i_j,H^{-i}_l))$$
+4. Update the lookup for all the cards that are in $s^{-i}_{jl}$, but reweighted with the sample weight $1/N_{sim}^2$
+$$lookup[C_k] \mathrel{+}= \frac{1}{N_{sim}^2} s^{-i}_{jl} \hspace{1cm} \forall C_k \in H^{-i}_l$$
+5. Complete steps 3. and 4. until all possible combinations $H^i_j, H^{-i}_l$ are exhausted.
+6. Calculate the expected play vector $\bar{s}^{-i}$ such that $\bar{s}^{-i}[C_k]=lookup[C_k]$ and let $\mathbf{A}^i$ be the payoff matrix for $i$ with respect to all the possible entries between the cards in the actual (not simulated hand) $H^i$ and all possible $C_k$ in $\bar{s}^{-i}$.
+7. Minimize the linear equation $s^i\mathbf{A}^i \bar{s}^{-i}$ for $s^i$ under the constraint that $s^i_m \geq 0$ and $\sum_m s^i_m = 1.$
+8. Sample the card to play from hand proportional to the weights in $s^i.$
+
 
 ## Implementation details
 
