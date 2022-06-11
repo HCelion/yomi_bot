@@ -295,3 +295,6 @@ class TestBestPlay(unittest.TestCase):
         assert len(strategy) == 2
         self.assertAlmostEqual(sum(strategy), 1)
         assert strategy[0] >= strategy[1]
+
+self = TestBestPlay()
+self.setUp()
