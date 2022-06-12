@@ -66,6 +66,13 @@ class TestRPSPlayerInit(unittest.TestCase):
         assert player.own_state["deck_size"] == 6
         assert player.other_state["deck_size"] == 6
 
+    def test_num_simulations(self):
+        player = RPSPlayer()
+        assert player.num_simulations == 10
+
+        player2 = RPSPlayer(num_simulations=100)
+        assert player2.num_simulations == 100
+
 
 class TestPlaying(unittest.TestCase):
     def test_random_playing(self):

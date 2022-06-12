@@ -12,10 +12,15 @@ class RPSPlayer(Player):
     deck_generator = RPSDeck
 
     def __init__(
-        self, hand_size: int = 3, strategy: str = "best_play", side: str = "left"
+        self,
+        hand_size: int = 3,
+        strategy: str = "best_play",
+        side: str = "left",
+        num_simulations: int = 10,
     ):
         super().__init__(hand_size=hand_size, strategy=strategy, side=side)
         self.payoff_lookup = rps.generate_rps_payoff_lookup()
+        self.num_simulations = num_simulations
 
     def generate_initial_state(self) -> dict:
         state = {}
