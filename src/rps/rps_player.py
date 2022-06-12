@@ -3,6 +3,7 @@ from src.rps.rps_deck import RPSDeck, rps_cards
 import src.rps.rps_rules as rps
 import numpy as np
 from typing import Iterable
+from collections import defaultdict
 import pygambit
 
 
@@ -113,12 +114,13 @@ class RPSPlayer(Player):
         left_vector = left_vector / left_vector.sum()
         right_vector = right_vector / right_vector.sum()
 
-        return left_vector, right_vector, 1
+        return left_vector, right_vector
 
     @staticmethod
     def simulate_best_strategy(
         own_hand, own_state, other_state, payoff_lookup, num_simulations=5
     ):
+
         own_hand_size = own_state["hand_size"]
         own_discard = own_state["discard"]
         other_hand_size = other_state["hand_size"]
@@ -132,25 +134,77 @@ class RPSPlayer(Player):
             hand_size=own_hand_size, discard=own_discard, num_samples=num_simulations
         )
 
-        nash_vectors = []
+        attack_weights = RPSPlayer.generate_average_attack_vector(
+            own_simulations=own_hand_simulation,
+            other_simulations=other_hand_simulation,
+            payoff_lookup=payoff_lookup,
+        )
 
-        for i in range(num_simulations):
-            left_payoff, _ = RPSPlayer.build_payoff_matrices(
-                left_hand=own_hand,
-                right_hand=other_hand_simulation[i, :],
-                payoff_lookup=payoff_lookup,
-            )
-            for j in range(num_simulations):
-                _, right_payoff = RPSPlayer.build_payoff_matrices(
-                    left_hand=own_hand_simulation[j, :],
-                    right_hand=other_hand_simulation[i, :],
+        optimal_probs = RPSPlayer.extract_thompson_probs(
+            own_hand=own_hand,
+            attack_weights=attack_weights,
+            payoff_lookup=payoff_lookup,
+        )
+
+        return optimal_probs
+
+    @staticmethod
+    def update_weights(cards, solution, attack_weight, update_weight):
+        for i, card in enumerate(cards):
+            attack_weight[card] += update_weight * solution[i]
+        return attack_weight
+
+    @staticmethod
+    def generate_average_attack_vector(
+        own_simulations, other_simulations, payoff_lookup
+    ):
+
+        attack_weights = defaultdict(float)
+        left_simulations = own_simulations.shape[0]
+        right_simulations = other_simulations.shape[0]
+        update_weight = (1 / left_simulations) * (1 / right_simulations)
+
+        # This step can likely be parallelised by giving as inputs fractions of the simulations and let them run with it, the weights can afterwards be
+        # summed up
+        for i in range(left_simulations):
+            for j in range(right_simulations):
+                left_payoff, right_payoff = RPSPlayer.build_payoff_matrices(
+                    left_hand=own_simulations[i, :],
+                    right_hand=other_simulations[j, :],
                     payoff_lookup=payoff_lookup,
                 )
-                nash_vector, _, num_results = RPSPlayer.calculate_nash_equilibrium(
+                _, other_equilibrium = RPSPlayer.calculate_nash_equilibrium(
                     left_payoff, right_payoff
                 )
-                if num_results == 1:
-                    nash_vectors.append(nash_vector)
 
-        average_strategy = np.mean(nash_vectors, axis=0)
-        return average_strategy
+                attack_weights = RPSPlayer.update_weights(
+                    cards=other_simulations[j, :],
+                    solution=other_equilibrium,
+                    attack_weight=attack_weights,
+                    update_weight=update_weight,
+                )
+
+        return attack_weights
+
+    @staticmethod
+    def extract_thompson_probs(own_hand, attack_weights, payoff_lookup):
+        thompson_weights = defaultdict(float)
+        other_hand = [card for card in attack_weights]
+        payoff, _ = RPSPlayer.build_payoff_matrices(
+            left_hand=own_hand,
+            right_hand=other_hand,
+            payoff_lookup=payoff_lookup,
+        )
+
+        for i, card in enumerate(other_hand):
+            weight = attack_weights[card]
+            max_utility = payoff[:, i].max()
+            result_indices = np.where(payoff[:, i] == max_utility)[0]
+            num_maxima = len(result_indices)
+            for index in result_indices:
+                own_card = own_hand[index]
+                thompson_weights[own_card] = (
+                    thompson_weights[own_card] + weight / num_maxima
+                )
+
+        return thompson_weights

@@ -266,12 +266,11 @@ class TestBestPlay(unittest.TestCase):
             left_hand, right_hand, self.payoff_lookup
         )
 
-        left_balance, right_balance, num_results = RPSPlayer.calculate_nash_equilibrium(
+        left_balance, right_balance = RPSPlayer.calculate_nash_equilibrium(
             left_payoff, right_payoff
         )
         assert len(left_balance) == 3
         assert len(right_balance) == 2
-        assert num_results == 1
 
         assert left_balance.sum() == 1
         assert right_balance.sum() == 1
@@ -279,6 +278,63 @@ class TestBestPlay(unittest.TestCase):
         # S3 is the doiminant strategy for left, S2 for right
         assert np.sum(left_balance - np.array([0, 0, 1])) == 0
         assert np.sum(right_balance - np.array([1, 0])) == 0
+
+    def test_attack_weight_calculation(self):
+        own_discard = deepcopy(self.empty_discard)
+        other_discard = deepcopy(self.empty_discard)
+        other_discard["S2"] = 1
+        other_hand_simulation = RPSPlayer.sample_hand(
+            hand_size=2,
+            discard=other_discard,
+            num_samples=5,
+        )
+        own_hand_simulation = RPSPlayer.sample_hand(
+            hand_size=3, discard=own_discard, num_samples=10
+        )
+
+        attack_weights = RPSPlayer.generate_average_attack_vector(
+            own_simulations=own_hand_simulation,
+            other_simulations=other_hand_simulation,
+            payoff_lookup=self.payoff_lookup,
+        )
+
+        # 'S2' is already in discard
+        assert "S2" not in attack_weights
+        total_weight = 0
+        for _, weight in attack_weights.items():
+            assert weight >= 0
+            total_weight += weight
+        self.assertAlmostEqual(total_weight, 1, places=5)
+
+    def test_extract_thompson_frequencies(self):
+        own_hand = ["S1", "S2"]
+        attack_weights = {"S3": 0.5, "P1": 0.5}
+
+        thompson_weights = RPSPlayer.extract_thompson_probs(
+            own_hand=own_hand,
+            attack_weights=attack_weights,
+            payoff_lookup=self.payoff_lookup,
+        )
+
+        assert len(thompson_weights) == 2
+        # Wins against paper with more utility
+        assert thompson_weights["S1"] == 0.5 * 0.5 + 0.5
+        assert thompson_weights["S2"] == 1 - thompson_weights["S1"]
+
+        own_hand = ["S1", "P1", "R1"]
+        attack_weights = {"S3": 1 / 3, "P3": 1 / 3, "R3": 1 / 3}
+
+        thompson_weights = RPSPlayer.extract_thompson_probs(
+            own_hand=own_hand,
+            attack_weights=attack_weights,
+            payoff_lookup=self.payoff_lookup,
+        )
+
+        assert len(thompson_weights) == 3
+        # Wins against paper with more utility
+        assert thompson_weights["S1"] == 1 / 3
+        assert thompson_weights["P1"] == 1 / 3
+        assert thompson_weights["R1"] == 1 / 3
 
     def test_simulate_best_strategy(self):
         own_hand = ["S1", "S2"]
@@ -289,13 +345,12 @@ class TestBestPlay(unittest.TestCase):
             own_state=own_state,
             other_state=other_state,
             payoff_lookup=self.payoff_lookup,
-            num_simulations=20,
+            num_simulations=5,
         )
 
         assert len(strategy) == 2
-        self.assertAlmostEqual(sum(strategy), 1)
-        assert strategy[0] >= strategy[1]
 
-
-self = TestBestPlay()
-self.setUp()
+        weights = 0.0
+        for _, weight in strategy.items():
+            weights += weight
+        self.assertAlmostEqual(weights, 1, places=5)

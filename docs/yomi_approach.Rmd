@@ -135,10 +135,19 @@ In practice this would lead to the algorithm
 $$\_,s^{-i}_{jl} = Nash(\mathbf{A}^i(H^i_j,H^{-i}_l), -\mathbf{A}^i(H^i_j,H^{-i}_l))$$
 4. Update the lookup for all the cards that are in $s^{-i}_{jl}$, but reweighted with the sample weight $1/N_{sim}^2$
 $$lookup[C_k] \mathrel{+}= \frac{1}{N_{sim}^2} s^{-i}_{jl} \hspace{1cm} \forall C_k \in H^{-i}_l$$
-5. Complete steps 3. and 4. until all possible combinations $H^i_j, H^{-i}_l$ are exhausted.
+5. Repeat steps 3. and 4. until all possible combinations $H^i_j, H^{-i}_l$ are exhausted.
 6. Calculate the expected play vector $\bar{s}^{-i}$ such that $\bar{s}^{-i}[C_k]=lookup[C_k]$ and let $\mathbf{A}^i$ be the payoff matrix for $i$ with respect to all the possible entries between the cards in the actual (not simulated hand) $H^i$ and all possible $C_k$ in $\bar{s}^{-i}$.
-7. Minimize the linear equation $s^i\mathbf{A}^i \bar{s}^{-i}$ for $s^i$ under the constraint that $s^i_m \geq 0$ and $\sum_m s^i_m = 1.$
+7. Based on the expected frequencies of $-i$s cards, assign to each card in hand $H^{i}$ the probability of being the best card. 
 8. Sample the card to play from hand proportional to the weights in $s^i.$
+
+Point 7 needs a bit more explanation. It is a form of Thompson sampling and it is actually not proven that the frequencies obtained are **consistent** with player $-i$s views. One would have to show that player $-i$ could not exploit that sampling scheme by changing their play frequencies. Thompson sampling seems to feel intuitively right though, as it attempts to maximise expected payoff while not being a pure strategy. It is also easy to see that dominant options would be played all the time, and purely subdominant options never.
+One could rephrase the sampling approach slightly. For each card in $H^i$, a range of outcomes $A^i(H^i_l, H^{-i}_k)$ is possible, each with the associated probability $lookup[C_k]$. So one could simulate outcomes independently for each card, and choose which ones are best. This could however break dependencies between the probabilities of cards in hand. Instead, sampling over $C_k$ should give consistent answers. The final play probabilties are then
+$$s^i_l = \sum_k p(C_k) \mathcal{I}_{l*,k},$$
+where $\mathcal{I}_{l*,k}$ is the indicator for $l$ being the maximiser of the utility $A^i(H^i_{l}, H^{-i}_k).$
+Should two or more cards have the same maximum utility for a card choice $C_k$ then the probability weight is shared evenly among them
+$$s^i_l = \sum_k \frac{p(C_k)}{\left|\mathcal{I}_{*,k}\right|} \mathcal{I}_{l*,k}.$$
+
+Special care has to be taken, that $\mathbf{A}^i(H^i, H^{-i}, I^{-i}, I^i) \neq \mathbf{A}^i(H^i, H^{-i} I^i)$, i.e. knowing the hand of $H^{-i}$ can change the payoff matrix. In advanced applications the inner payoff matrices used in steps 3 could be different than the marginalised payoff matrix in step 7 that has ignorance of the remaining hand of $-i$ after play. 
 
 
 ## Implementation details
