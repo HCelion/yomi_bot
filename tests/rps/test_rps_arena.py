@@ -187,4 +187,21 @@ class TestFullGame(unittest.TestCase):
         arena = RPSArena(
             left_strategy="random", right_strategy="best", num_simulations=2
         )
-        outcome = arena.play_game()
+        _ = arena.play_game()
+        for card in arena.left_player.own_state["discard"]:
+            # All players should agree that their and the opposing player's
+            # discard are full
+            assert arena.left_player.own_state["discard"][card] == 1
+            assert arena.left_player.other_state["discard"][card] == 1
+            assert arena.right_player.own_state["discard"][card] == 1
+            assert arena.right_player.other_state["discard"][card] == 1
+
+        assert arena.left_player.own_state["hand_size"] == 0
+        assert arena.left_player.own_state["deck_size"] == 0
+        assert arena.left_player.other_state["hand_size"] == 0
+        assert arena.left_player.other_state["deck_size"] == 0
+
+        assert arena.right_player.own_state["hand_size"] == 0
+        assert arena.right_player.own_state["deck_size"] == 0
+        assert arena.right_player.other_state["hand_size"] == 0
+        assert arena.right_player.other_state["deck_size"] == 0

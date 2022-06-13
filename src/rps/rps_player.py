@@ -203,7 +203,7 @@ class RPSPlayer(Player):
         )
 
         chosen_card = self.sample_from_dict(prob_dict=optimal_probs)
-        card = self.hand.remove(chosen_card)
+        _ = self.hand.remove(chosen_card)
         return chosen_card
 
     @staticmethod
