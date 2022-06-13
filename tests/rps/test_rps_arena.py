@@ -181,3 +181,10 @@ class TestFullGame(unittest.TestCase):
         assert arena.right_player.own_state["deck_size"] == 0
         assert arena.right_player.other_state["hand_size"] == 0
         assert arena.right_player.other_state["deck_size"] == 0
+
+    def test_one_player_plays_best_strategy(self):
+
+        arena = RPSArena(
+            left_strategy="random", right_strategy="best", num_simulations=2
+        )
+        outcome = arena.play_game()

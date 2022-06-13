@@ -6,6 +6,7 @@ import numpy as np
 from copy import deepcopy
 import unittest
 import warnings
+from collections import Counter
 
 warnings.simplefilter("ignore")
 np.seterr(all="ignore")
@@ -361,3 +362,28 @@ class TestBestPlay(unittest.TestCase):
         for _, weight in strategy.items():
             weights += weight
         self.assertAlmostEqual(weights, 1, places=5)
+
+    def test_sampling_from_dict(self):
+        example_dict = {"one": 0.5, "two": 0.25, "three": 0.25, "four": 0.0}
+        all_samples = []
+        for _ in range(10000):
+            all_samples.append(RPSPlayer.sample_from_dict(example_dict))
+
+        counter = Counter(all_samples)
+
+        assert "four" not in counter
+        assert counter["one"] > counter["two"] * 1.9
+        assert counter["one"] < counter["two"] * 2.1
+        assert counter["two"] > 0.9 * counter["three"]
+        assert counter["two"] < 1.1 * counter["three"]
+
+    def test_best_strategy_runs(self):
+        player = RPSPlayer(num_simulations=2, strategy="best")
+        assert len(player.hand) == 3
+
+        hand_copy = deepcopy(player.hand)
+        card = player.choose_card()
+
+        assert card in hand_copy
+        assert len(player.hand) == 2
+        assert card not in player.hand

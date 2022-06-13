@@ -33,6 +33,8 @@ class RPSPlayer(Player):
     def choose_card(self) -> str:
         if self.strategy == "random":
             return self.random_strategy()
+        elif self.strategy == "best":
+            return self.best_strategy()
         else:
             raise NotImplementedError("The player does not know the suggested strategy")
 
@@ -191,6 +193,19 @@ class RPSPlayer(Player):
 
         return attack_weights
 
+    def best_strategy(self):
+        optimal_probs = self.simulate_best_strategy(
+            own_hand=self.hand,
+            own_state=self.own_state,
+            other_state=self.other_state,
+            payoff_lookup=self.payoff_lookup,
+            num_simulations=self.num_simulations,
+        )
+
+        chosen_card = self.sample_from_dict(prob_dict=optimal_probs)
+        card = self.hand.remove(chosen_card)
+        return chosen_card
+
     @staticmethod
     def extract_thompson_probs(own_hand, attack_weights, payoff_lookup):
         thompson_weights = defaultdict(float)
@@ -213,3 +228,14 @@ class RPSPlayer(Player):
                 )
 
         return thompson_weights
+
+    @staticmethod
+    def sample_from_dict(prob_dict):
+        cards = []
+        probabilities = []
+        for card, probability in prob_dict.items():
+            cards.append(card)
+            probabilities.append(probability)
+
+        card = np.random.choice(cards, p=probabilities)
+        return card

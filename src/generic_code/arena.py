@@ -13,19 +13,24 @@ class Arena(ABC):
         right_strategy="right_play",
         left_generator=None,
         right_generator=None,
+        num_simulations=5,
     ):
         if left_generator:
-            self.left_player = left_generator(side="left", strategy=left_strategy)
+            self.left_player = left_generator(
+                side="left", strategy=left_strategy, num_simulations=num_simulations
+            )
         else:
             self.left_player = self.player_generator(
-                side="left", strategy=left_strategy
+                side="left", strategy=left_strategy, num_simulations=num_simulations
             )
 
         if right_generator:
-            self.right_player = right_generator(side="right", strategy=right_strategy)
+            self.right_player = right_generator(
+                side="right", strategy=right_strategy, num_simulations=num_simulations
+            )
         else:
             self.right_player = self.player_generator(
-                side="right", strategy=right_strategy
+                side="right", strategy=right_strategy, num_simulations=num_simulations
             )
 
     def play_game(self):
