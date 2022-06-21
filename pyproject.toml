@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "yomi_bot"
+version = "0.1.0"
+description = "A set of bots to learn competitive card play"
+authors = ["Arvid J. Kingl <akingl2016@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pytest = "^7.1.2"
+pandas = "^1.4.2"
+numpy = "^1.22.4"
+pygambit = "^16.0.2"
+matplotlib = "^3.5.2"
+black = "^22.3.0"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
