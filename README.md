@@ -13,3 +13,5 @@ For Unix systems, unpack the file and then run inside the unpacked package
 make
 sudo make install
 ```
+
+We also want to implement the game Yomi itself.
