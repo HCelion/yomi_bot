@@ -1,10 +1,9 @@
-from src.generic_code.player import Player
-from src.rps.rps_deck import RPSDeck, rps_cards
-import src.rps.rps_rules as rps
+from yomibot.generic_code.player import Player
+from yomibot.rps.rps_deck import RPSDeck, rps_cards
+import yomibot.rps.rps_rules as rps
 import numpy as np
 from typing import Iterable
 from collections import defaultdict
-import pygambit
 
 
 class RPSPlayer(Player):

@@ -1,6 +1,6 @@
-from src.rps.rps_player import RPSPlayer
-from src.rps.rps_deck import rps_cards
-import src.rps.rps_rules as rps
+from yomibot.rps.rps_player import RPSPlayer
+from yomibot.rps.rps_deck import rps_cards
+import yomibot.rps.rps_rules as rps
 import random
 import numpy as np
 from copy import deepcopy

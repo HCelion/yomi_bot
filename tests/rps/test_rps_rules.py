@@ -1,4 +1,4 @@
-from src.rps.rps_rules import (
+from yomibot.rps.rps_rules import (
     determine_suit_winner,
     determine_score,
     determine_rps_outcome,
