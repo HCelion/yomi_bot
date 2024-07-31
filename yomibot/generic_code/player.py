@@ -2,58 +2,58 @@ from abc import ABC, abstractmethod
 import random
 
 
-class Player(ABC):
+class Player(composition, ABC):
+    """
+    Class for containing decks and deck operations.
+    A player is a composition of 3 decks with some strategy on top.
 
-    # TODO Make player a runnable subprocess that listens in on the Arena for
-    # instructions, so it can run in parallel to other players
+    ...
+
+    Attributes:
+    ----------
+    deck_composition:
+        The character deck, minus 1 throw, 2 blocks and 1 burst.
+    hand_size:
+        The amount of cards that the character draws on initialisation.
+    strategy:
+        How the character will be played.
+
+    Methods
+    -------
+    draw():
+        If the amount of cards in the Deck:
+            - Greater than 0: pop a card into the character hand.
+            - Exactly 0:
+                1. Set the thrash as the deck
+                2. Shuffle the deck and empty the trash.
+            - Less than 0: throw an error.
+    random_strategy():
+        Shuffle the hand, play a popped card.
+    """
 
     def __init__(
-        self, hand_size: int = 3, strategy: str = "best_play", side: str = "left"
+        self,
+        deck_composition,
+        hand_size: int = 3,
+        strategy: str = "best_play",
     ):
-        self.deck = self.deck_generator().shuffled()
-        self.hand = self.deck.draw(hand_size)
+        self.hand = Deck({"throw": 1, "blocks": 2, "burst": 1})
+        self.deck = Deck([Card(card) for card in cards])
+        self.thrash = Deck()
+        self.deck.shuffle()  # Could have made part of deck init but not worth it
+
         self.strategy = strategy
         self.side = side
 
-        if side == "left":
-            self.other_side = "right"
-        else:
-            self.other_side = "left"
-
-        self.own_state = self.generate_initial_state()
-        self.other_state = self.generate_initial_state()
-
-    @property
-    @abstractmethod
-    def deck_generator(self):
-        pass
-
-    @abstractmethod
-    def generate_initial_state(self):
-        ...
-
-    def initialise_discard(self):
-        return {card: 0 for card in self.deck_generator()}
-
-    @abstractmethod
-    def choose_card(self):
-        pass
-
-    def update_state(self, update_dict: dict):
-        # Updates internal representations of self and other
-        self.update_specific_state(update_dict[self.side], self.own_state)
-        self.update_specific_state(update_dict[self.other_side], self.other_state)
-
-        # Run assigned actions only for self
-        self.run_assigned_actions(update_dict[self.side])
-
-    @abstractmethod
-    def update_specific_state(self, update_dict: dict, state: dict):
-        pass
-
-    @abstractmethod
-    def run_assigned_actions(self, action_updates: dict):
-        pass
+    def draw(self):
+        deck_len = len(self.deck)
+        if deck_len >= 0:
+            self.hand.cards.append(self.deck.cards.pop())
+        elif deck_len == 0:
+            self.deck = self.thrash.shuffle()
+            self.trash = Deck()
+        elif deck_len < 0:
+            raise ("Deck len should never be less than zero!")
 
     def random_strategy(self):
         if len(self.hand) > 0:
