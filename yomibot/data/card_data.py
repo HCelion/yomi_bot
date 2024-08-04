@@ -9,7 +9,7 @@ class CustomEmbedding:
     storage_path = None
     embedding_dim = None
     
-    def __init__(self,string_to_index=string_to_index, embedding=embedding):
+    def __init__(self,string_to_index, embedding):
         self.string_to_index=string_to_index
         self.embedding = embedding
         
@@ -21,14 +21,12 @@ class CustomEmbedding:
     
     @classmethod
     def load(cls):
-        obj = cls()
         # embedding_dict = torch.load(embeddings_path / 'yomideck_embedding.pth')
         embedding_dict = torch.load(cls.storage_path)
-        obj.string_to_index = embedding_dict['string_to_index']
         embedding = Embedding(embedding_dict['num_cards'], embedding_dict['embedding_dim'])
-        embedding.load_state_dict(embedding_dict['embedding'])
-        embedding.weight.requires_grad = False
-        obj.embedding = embedding
+        obj = cls(string_to_index=embedding_dict['string_to_index'], embedding=embedding)
+        obj.embedding.load_state_dict(embedding_dict['embedding'])
+        obj.embedding.weight.requires_grad = False
         return obj
         
     @classmethod
@@ -80,7 +78,7 @@ def generate_sample_data():
     player_encoder = YomiPlayerEmbedding.load()
     gem_encoder = GemEmbedding.load()
 
-    my_hand = ['LB','HB', 'Thr', 'Burst', 'A', 'B', 'E']
+    my_hand = ['LB','HB', 'Thr', 'Burst', 'A', 'B','A']
     my_discard = ['Super1', 'Super2']
     opponent_hand = ['LB','HB', 'Thr', 'Burst', 'unknown', 'unknown', 'unknown']
     opponent_discard = ['Super1', 'Super2']
@@ -90,14 +88,15 @@ def generate_sample_data():
     opponent_gem = ['Blue']
     
     yomi_data = HeteroData()
-    yomi_data['my_hand'].x = yomiencoder.encode(my_hand)
-    yomi_data['my_discard'].x = yomiencoder.encode(my_discard)
-    yomi_data['opponent_hand'].x = yomiencoder.encode(opponent_hand)
-    yomi_data['opponent_discard'].x = yomiencoder.encode(opponent_discard)
+    yomi_data['my_hand'].x = yomi_encoder.encode(my_hand)
+    yomi_data['my_discard'].x = yomi_encoder.encode(my_discard)
+    yomi_data['opponent_hand'].x = yomi_encoder.encode(opponent_hand)
+    yomi_data['opponent_discard'].x = yomi_encoder.encode(opponent_discard)
     yomi_data.my_health = torch.tensor(100)
     yomi_data.opponent_health = torch.tensor(100)
     yomi_data.my_player = player_encoder.encode(my_player)
     yomi_data.opponent_player = player_encoder.encode(opponent_player)
     yomi_data.my_gem = gem_encoder.encode(my_gem)
     yomi_data.opponent_gem = gem_encoder.encode(opponent_gem)
+    yomi_data.target = 1
     return yomi_data
