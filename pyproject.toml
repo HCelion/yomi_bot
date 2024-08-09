@@ -27,3 +27,15 @@ pre-commit = "^3.8.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+line-length = 90
+exclude = ["tests/", "*/__init__.py"]
+
+[tool.ruff.lint]
+unfixable = ["F401"]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = false
+exclude = ["tests/"]
