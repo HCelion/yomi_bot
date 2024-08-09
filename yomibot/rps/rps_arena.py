@@ -1,6 +1,6 @@
-from src.generic_code.arena import Arena
-from src.rps.rps_player import RPSPlayer
-import src.rps.rps_rules as rps
+from yomibot.generic_code.arena import Arena
+from yomibot.rps.rps_player import RPSPlayer
+import yomibot.rps.rps_rules as rps
 
 
 class RPSArena(Arena):

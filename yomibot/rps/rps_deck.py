@@ -1,4 +1,4 @@
-from src.generic_code.deck import Deck
+from yomibot.generic_code.deck import Deck
 from itertools import product
 from copy import deepcopy
 from typing import List

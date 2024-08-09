@@ -1,5 +1,5 @@
 import unittest
-from src.rps.rps_deck import RPSDeck
+from yomibot.rps.rps_deck import RPSDeck
 import random
 from collections import Counter
 
