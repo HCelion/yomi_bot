@@ -72,6 +72,16 @@ class GemEmbedding(CustomEmbedding):
     embedding_dim = 5
 
 
+def create_card_index(cards1, cards2, decider):
+    first_index = []
+    second_index = []
+    for i, card1 in enumerate(cards1):
+        for j, card2 in enumerate(cards2):
+            if decider(card1, card2):
+                first_index.append(i)
+                second_index.append(j)
+    return torch.tensor([first_index, second_index], dtype=torch.long)
+
 def generate_sample_data():
     
     yomi_encoder = YomiEmbedding.load()
@@ -87,6 +97,26 @@ def generate_sample_data():
     my_gem = ['Red']
     opponent_gem = ['Blue']
     
+    # This should be replaced with a more complicated function
+    def is_undecidable(cardlabel1, cardlabel2):
+        return (cardlabel1 == 'unknown') or (cardlabel2 == 'unknown')
+              
+    
+    def beat_decider(cardlabel1, cardlabel2):
+        if is_undecidable(cardlabel1, cardlabel2):
+            return False
+        if cardlabel1 > cardlabel2:
+            return True
+        
+        return False
+    
+    def loss_decider(cardlabel1, cardlabel2):
+        if is_undecidable(cardlabel1, cardlabel2):
+            return False
+        if cardlabel1 < cardlabel2:
+            return True
+        return False
+    
     yomi_data = HeteroData()
     yomi_data['my_hand'].x = yomi_encoder.encode(my_hand)
     yomi_data['my_discard'].x = yomi_encoder.encode(my_discard)
@@ -99,4 +129,62 @@ def generate_sample_data():
     yomi_data.my_gem = gem_encoder.encode(my_gem)
     yomi_data.opponent_gem = gem_encoder.encode(opponent_gem)
     yomi_data.target = 1
+    
+    yomi_data['my_hand', 'beats', 'opponent_hand'].edge_index = create_card_index(my_hand, opponent_hand,beat_decider)
+    yomi_data['my_hand', 'loses_to', 'opponent_hand'].edge_index = create_card_index(my_hand, opponent_hand,loss_decider)
+
+    return yomi_data
+
+
+def generate_small_sample_data():
+    
+    yomi_encoder = YomiEmbedding.load()
+    player_encoder = YomiPlayerEmbedding.load()
+    gem_encoder = GemEmbedding.load()
+
+    my_hand = ['LB','HB', 'Thr', 'Burst']
+    my_discard = ['Super1', 'Super2']
+    opponent_hand = ['LB','HB', 'Thr', 'Burst', 'unknown', 'unknown', 'unknown']
+    opponent_discard = ['Super1', 'Super2']
+    my_player = ['Grave']
+    opponent_player = ['Jaina']
+    my_gem = ['Red']
+    opponent_gem = ['Blue']
+    
+    # This should be replaced with a more complicated function
+    def is_undecidable(cardlabel1, cardlabel2):
+        return (cardlabel1 == 'unknown') or (cardlabel2 == 'unknown')
+              
+    
+    def beat_decider(cardlabel1, cardlabel2):
+        if is_undecidable(cardlabel1, cardlabel2):
+            return False
+        if cardlabel1 > cardlabel2:
+            return True
+        
+        return False
+    
+    def loss_decider(cardlabel1, cardlabel2):
+        if is_undecidable(cardlabel1, cardlabel2):
+            return False
+        if cardlabel1 < cardlabel2:
+            return True
+        return False
+    
+    yomi_data = HeteroData()
+    yomi_data['my_hand'].x = yomi_encoder.encode(my_hand)
+    yomi_data['my_discard'].x = yomi_encoder.encode(my_discard)
+    yomi_data['opponent_hand'].x = yomi_encoder.encode(opponent_hand)
+    yomi_data['opponent_discard'].x = yomi_encoder.encode(opponent_discard)
+    yomi_data.my_health = torch.tensor(100)
+    yomi_data.opponent_health = torch.tensor(100)
+    yomi_data.my_player = player_encoder.encode(my_player)
+    yomi_data.opponent_player = player_encoder.encode(opponent_player)
+    yomi_data.my_gem = gem_encoder.encode(my_gem)
+    yomi_data.opponent_gem = gem_encoder.encode(opponent_gem)
+    yomi_data.target = 1
+    
+    yomi_data['my_hand', 'beats', 'opponent_hand'].edge_index = create_card_index(my_hand, opponent_hand,beat_decider)
+    yomi_data['my_hand', 'loses_to', 'opponent_hand'].edge_index = create_card_index(my_hand, opponent_hand,loss_decider)
+
     return yomi_data
