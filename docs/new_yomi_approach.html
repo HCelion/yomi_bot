@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>new_yomi_approach</title>
+  <style>
+    html {
+      line-height: 1.5;
+      font-family: Georgia, serif;
+      font-size: 20px;
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 1em;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, 'Lucida Console', Consolas, monospace;
+      font-size: 85%;
+      margin: 0;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <script
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
+  type="text/javascript"></script>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<h2 id="approximating-nash-equilibria-through-play">Approximating Nash
+equilibria through play</h2>
+<p>The trouble with the previous approach was in finding good nash
+equilibrium solvers that can solve large state spaces (&gt;10 cards)
+quickly.</p>
+<p>Instead, we try to approximate something like a Nash equilibrium by
+letting pairs of models play against each other and optimising their
+strategy mutually and hope that the outcome is close enough to a true
+equilibrium state while taking into account the lack of complete
+information. This should be possible, see for example <a
+href="https://openreview.net/pdf?id=cc8h3I3V4E">this paper</a>. This
+means a player does not try to simulate the state of the opponents mind
+explicitly, but rather this information is captured by the model.</p>
+<p>In this new approach, just like in the old one , we try to
+approximate the payout function by training a model to predict given a
+game state <span class="math inline">\(s\)</span> what the chance of a
+win is <span class="math inline">\(X=1\)</span>,</p>
+<p><span class="math display">\[P(X=1|s,\pi_{\mbox{self}}
+,\pi_{\mbox{other}}) = f(s) \approx \bar{f}(s)\]</span></p>
+<p>where <span class="math inline">\(\pi_{\mbox{self}}
+,\pi_{\mbox{other}}\)</span> are the policies of both players, <span
+class="math inline">\(\bar{f}(s)\)</span> is the estimator we want to
+train and <span class="math inline">\(s\)</span> is the complete state
+containing all the knowledge of the player, such as identity of own
+cards, number of opponent cards, identity of known opponent cards, hp
+and status effects. Such a model is straightforward to train if the
+opponent policy stays constant.</p>
+<p>We will also need a policy network (though for the full yomi game
+more, to model the actions to take for other actions, such as exchanges,
+boosting combos and pumping play, and other non–cardplay actions). Such
+a model should return a probability distribution over the available
+actions (card plays) <span
+class="math inline">\(\mathcal{A}\)</span></p>
+<p><span class="math display">\[P(a| s, \pi_{\mbox{self}}
+,\pi_{\mbox{other}}), a \in \mathcal{A} = g(a,s) =
+\bar{\mathbf{g}}(s),\]</span> where <span
+class="math inline">\(\bar{\mathbf{g}}\)</span> is a distribution over
+the action space. How would such a model be trained?</p>
+<p>As we play, we sample from the action distribution and could punish
+or reward the model based on the outcome of that particular interaction.
+That would however be wasteful, as the model would not have made use of
+the actions in would not have chosen.</p>
+<p>Instead, we can map for each action taken and the actual action <span
+class="math inline">\(z\)</span> by the other player, how the state
+would have evolved</p>
+<p><span class="math display">\[ \begin{array}{c} s + z + a_1
+\rightarrow s_1  \\
+s + z + a_2 \rightarrow s_2 \\
+\vdots \\
+s + z + a_n \rightarrow s_n
+\end{array}\]</span></p>
+<p>While in principle we don’t know whether which of these states is
+best, we can let the previous model decide. We could define a reward
+vector in such a way</p>
+<p><span class="math display">\[\mathbf{f}: \mathbf{f}_i = \bar{f}(s_i)
+- \bar{f}(s),\]</span></p>
+<p>or any other monotenous function of the difference, such as</p>
+<p><span class="math display">\[\mathbf{f}: \mathbf{f}_i = \log
+\bar{f}(s_i) - \log \bar{f}(s),\]</span></p>
+<p>One objective could be to maximise the expected reward</p>
+<p><span class="math display">\[ \max  \bar{\mathbf{f}}(s)^T
+\bar{\mathbf{g}}(s) ,\]</span></p>
+<p>or</p>
+<p><span class="math display">\[L = -
+\bar{\mathbf{f}}(s)^T  \bar{\mathbf{g}}(s) ,\]</span></p>
+<p>which can naturally be batched over different iteration situations
+<span class="math inline">\(s\)</span>. Having 2 models here is actually
+a benefit, since the errors of the models are independent, and so the
+gradient should be unbiased.</p>
+<p>The research in <a
+href="https://openreview.net/pdf?id=cc8h3I3V4E">this paper</a> suggests
+that there is benefit, despite there being a different setup due to the
+unknown nature of the opponents action choices, to align the gradient
+with the tangent space to the simplex <span class="math inline">\(\sum
+g_i(s) = 1\)</span>. If we have <span class="math inline">\(m\)</span>
+actions available, we can project using a projection operator</p>
+<p><span class="math display">\[\Pi = \mathbf{I}_m -
+\frac{1}{m}\mathbf{1}_m \mathbf{1}_m^T.\]</span></p>
+<p>Since <span class="math inline">\(\Pi = \Pi^T = \Pi^2\)</span> we can
+modify the loss to be any of</p>
+<p><span class="math display">\[L = -
+(\Pi\bar{\mathbf{f}}(s))^T  \bar{\mathbf{g}}(s)  =  -
+\bar{\mathbf{f}}(s)^T  (\Pi\bar{\mathbf{g}}(s)) = -
+(\Pi\bar{\mathbf{f}}(s))^T (\Pi\bar{\mathbf{g}}(s)), \]</span></p>
+<p>which would suggest that the gradient of the loss with respect to the
+parametrisation of $ {}$ would be a projection as well and leave the
+simplex intact (though the model itself would naturally renormalise the
+outputs to sum to 1).</p>
+</body>
+</html>
