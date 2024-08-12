@@ -1,0 +1,11 @@
+bias: true
+dropout: 0.1
+final_dim: 5
+hidden_dim: 8
+input_bias: true
+lr: 0.1
+max_iters: 2000
+num_heads: 2
+num_layers: 3
+warmup: 10
+weight_decay: 0.01

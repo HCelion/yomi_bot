@@ -1,9 +1,9 @@
 import torch
 from torch import zeros
 from random import choice
-from torch_geometric.data import HeteroData
+from torch_geometric.data import HeteroData, Dataset
 from torch.nn import Embedding
-from yomibot.common.paths import data_path, embeddings_path
+from yomibot.common.paths import embeddings_path
 
 
 class CustomEmbedding:
@@ -302,7 +302,19 @@ def generate_rps_sample(payout_function=rps_standard_payout):
     )
 
     opponent_action = choice(opponent_hand)
-    rps_opponent_action = opponent_action
+    rps_data.opponent_action = opponent_action
     rps_data.payout = get_payout_tensor(my_hand, opponent_action, rps_standard_payout)
 
     return rps_data
+
+
+class CardDataset(Dataset):
+    def __init__(self, data_list, transform=None, pre_transform=None):
+        super().__init__(None, transform, pre_transform)
+        self.data_list = data_list
+
+    def len(self):
+        return len(self.data_list)
+
+    def get(self, idx):
+        return self.data_list[idx]
