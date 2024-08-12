@@ -1,0 +1,1 @@
+from yomibot.graph_models.base_encoder import RPSHandChoiceModel

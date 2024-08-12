@@ -55,4 +55,4 @@ Since $\Pi = \Pi^T = \Pi^2$ we can modify the loss to be any of
 
 $$L = - (\Pi\bar{\mathbf{f}}(s))^T  \bar{\mathbf{g}}(s)  =  - \bar{\mathbf{f}}(s)^T  (\Pi\bar{\mathbf{g}}(s)) = - (\Pi\bar{\mathbf{f}}(s))^T (\Pi\bar{\mathbf{g}}(s)), $$
 
-which would suggest that the gradient of the loss with respect to the parametrisation of $ \bar{\mathbf{g}}$ would be a projection as well and leave the simplex intact (though the model itself would naturally renormalise the outputs to sum to 1).
+which would suggest that the gradient of the loss with respect to the parametrisation of $\bar{\mathbf{g}}$ would be a projection as well and leave the simplex intact (though the model itself would naturally renormalise the outputs to sum to 1).

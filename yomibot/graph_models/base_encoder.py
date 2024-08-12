@@ -1,4 +1,4 @@
-from yomibot.data.card_data import generate_sample_data
+from yomibot.data.card_data import generate_sample_data, generate_rps_sample
 import torch
 import torch.nn as nn
 from torch_geometric.nn import HeteroConv, GATv2Conv, CGConv
@@ -97,8 +97,10 @@ class YomiSuccessModel(nn.Module):
                 x_dict["opponent_hand"], batch=batch_dict["opponent_hand"]
             )
         else:
-            my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"])
-            other_hand_encoding = geom_nn.global_mean_pool(x_dict["opponent_hand"])
+            my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"], batch=None)
+            other_hand_encoding = geom_nn.global_mean_pool(
+                x_dict["opponent_hand"], batch=None
+            )
         full_encoding = torch.cat((my_hand_encoding, other_hand_encoding), dim=1)
         logits = self.final_encoder(full_encoding)
         return logits
@@ -124,8 +126,46 @@ class YomiHandChoiceModel(nn.Module):
         x_dict = self.hand_endcoder(x_dict, edge_index_dict)
         my_hand = x_dict["my_hand"]
         logits = self.final_encoder(my_hand)
-        output_tensor, indices = to_dense_batch(
-            logits, batch_dict["my_hand"], max_num_nodes=12, fill_value=-9999
-        )
+
+        if batch_dict is not None:
+            output_tensor, _ = to_dense_batch(
+                logits, batch_dict["my_hand"], max_num_nodes=12, fill_value=-9999
+            )
+        else:
+            # we just pad here to have consistent output
+            output_tensor = torch.concatenate(
+                [logits, torch.full((12 - len(logits), 1), -9999)]
+            )
+
         output_logits = output_tensor.reshape(-1, 12)
+        return output_logits
+
+
+class RPSHandChoiceModel(nn.Module):
+    def __init__(self, hidden_dim, final_dim, input_bias=True, **kwargs):
+        super(RPSHandChoiceModel, self).__init__()
+        sample_data = generate_rps_sample()
+        card_embed_dim = sample_data["my_hand"].x.shape[-1]
+
+        # Initial encoding
+        self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
+        self.hand_endcoder = HandConv(hidden_dim=hidden_dim, **kwargs)
+        self.final_encoder = nn.Sequential(
+            nn.Linear(hidden_dim, final_dim, bias=input_bias),
+            nn.LeakyReLU(final_dim, inplace=True),
+            nn.Linear(final_dim, 1, bias=input_bias),
+        )
+
+    def forward(self, x_dict, edge_index_dict, batch_dict=None):
+        x_dict = {key: self.linear_encoder(x) for key, x in x_dict.items()}
+        x_dict = self.hand_endcoder(x_dict, edge_index_dict)
+        my_hand = x_dict["my_hand"]
+        logits = self.final_encoder(my_hand)
+        if batch_dict is not None:
+            output_tensor, _ = to_dense_batch(
+                logits, batch_dict["my_hand"], max_num_nodes=3, fill_value=-9999
+            )
+        else:
+            output_tensor = logits
+        output_logits = output_tensor.reshape(-1, 3)
         return output_logits
