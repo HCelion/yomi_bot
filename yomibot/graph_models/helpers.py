@@ -17,3 +17,13 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):  # pylint: disable
         if epoch <= self.warmup:
             lr_factor *= epoch * 1.0 / self.warmup
         return lr_factor
+
+
+def get_nash_equilibria(A):
+    import nashpy as nash
+    import numpy as np
+
+    rps = nash.Game(A, -A)
+    eqs = rps.support_enumeration()
+    player_1, player_2 = list(eqs)[0]
+    return player_1, player_2

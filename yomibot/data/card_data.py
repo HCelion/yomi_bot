@@ -1,6 +1,6 @@
 import torch
+from random import choice, choices, shuffle
 from torch import zeros
-from random import choice
 from torch_geometric.data import HeteroData, Dataset
 from torch.nn import Embedding
 from yomibot.common.paths import embeddings_path
@@ -89,7 +89,7 @@ class YomiEmbedding(CustomEmbedding):
 
 
 class RPSEmbedding(CustomEmbedding):
-    allowed_values = ["Rock", "Paper", "Scissor"]
+    allowed_values = ["Rock", "Paper", "Scissors"]
     storage_path = embeddings_path / "rps_embedding.pth"
     embedding_dim = 3
 
@@ -270,9 +270,37 @@ def generate_small_sample_data():
 
 def rps_standard_payout(card_1, card_2):
     card_combo = (card_1, card_2)
-    if card_combo in [("Rock", "Scissor"), ("Paper", "Rock"), ("Scissor", "Paper")]:
+    if card_combo in [("Rock", "Scissors"), ("Paper", "Rock"), ("Scissors", "Paper")]:
         return +1
-    elif card_combo in [("Scissor", "Rock"), ("Rock", "Paper"), ("Paper", "Scissor")]:
+    elif card_combo in [("Scissors", "Rock"), ("Rock", "Paper"), ("Paper", "Scissors")]:
+        return -1
+    else:
+        return 0
+
+
+def rps_non_standard_payout(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_combo in [("Rock", "Scissors")]:
+        return +2
+    elif card_combo in [("Scissors", "Rock")]:
+        return -1
+    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
+        return +1
+    elif card_combo in [("Rock", "Paper"), ("Paper", "Scissors")]:
+        return -1
+    else:
+        return 0
+
+
+def rps_non_standard_payout_opponent(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_combo in [("Rock", "Scissors")]:
+        return +1
+    elif card_combo in [("Scissors", "Rock")]:
+        return -2
+    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
+        return +1
+    elif card_combo in [("Rock", "Paper"), ("Paper", "Scissors")]:
         return -1
     else:
         return 0
@@ -285,10 +313,12 @@ def get_payout_tensor(my_hand, opponent_action, payout_function):
     return output_tensor
 
 
-def generate_rps_sample(payout_function=rps_standard_payout):
+def generate_rps_sample(payout_function=rps_standard_payout, opponent_model=None):
     rps_encoder = RPSEmbedding.load()
-    my_hand = ["Rock", "Paper", "Scissor"]
-    opponent_hand = ["Rock", "Paper", "Scissor"]
+    my_hand = ["Rock", "Paper", "Scissors"]
+    shuffle(my_hand)
+    opponent_hand = ["Rock", "Paper", "Scissors"]
+    shuffle(opponent_hand)
 
     rps_data = HeteroData()
     rps_data["my_hand"].x = rps_encoder.encode(my_hand)
@@ -300,10 +330,17 @@ def generate_rps_sample(payout_function=rps_standard_payout):
     rps_data["my_hand", "loses_to", "opponent_hand"].edge_index = create_card_index_int(
         my_hand, opponent_hand, payout_function, -1
     )
+    rps_data["my_hand"].choices = my_hand
+    rps_data["opponent_hand"].choices = opponent_hand
 
-    opponent_action = choice(opponent_hand)
+    if opponent_model is None:
+        opponent_action = choice(opponent_hand)
+    else:
+        options = [val[0] for val in opponent_model]
+        probabilities = [val[1] for val in opponent_model]
+        opponent_action = choices(options, probabilities)[0]
     rps_data.opponent_action = opponent_action
-    rps_data.payout = get_payout_tensor(my_hand, opponent_action, rps_standard_payout)
+    rps_data.payout = get_payout_tensor(my_hand, opponent_action, payout_function)
 
     return rps_data
 

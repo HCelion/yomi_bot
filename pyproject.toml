@@ -17,6 +17,7 @@ black = "^22.3.0"
 torch = "^2.4.0"
 pytorch-lightning = "^2.3.3"
 torch-geometric = "^2.5.3"
+nashpy = "^0.0.41"
 
 [tool.poetry.dev-dependencies]
 

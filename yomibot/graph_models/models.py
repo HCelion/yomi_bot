@@ -24,6 +24,7 @@ class RPSModel(pl.LightningModule):
         weight_decay=0.01,
         warmup=10,
         max_iters=2000,
+        use_projection=False,
         **model_kwargs,
     ):
         super().__init__()
@@ -32,6 +33,10 @@ class RPSModel(pl.LightningModule):
         self.undirected_transformer = ToUndirected()
         self.example_data = generate_rps_sample()
         self.model = RPSHandChoiceModel(**model_kwargs)
+        self.use_projection = use_projection
+        self.projection_matrix = torch.eye(3) - (1 / 3) * torch.ones((3, 1)) @ torch.ones(
+            (1, 3)
+        )
 
     def forward(  # pylint: disable=(too-many-locals
         self,
@@ -53,7 +58,8 @@ class RPSModel(pl.LightningModule):
         payout_wide, _ = to_dense_batch(payout, batch_dict["my_hand"], max_num_nodes=3)
 
         payout_wide = payout_wide.reshape(-1, 3)
-
+        if self.use_projection:
+            payout_wide = payout_wide @ self.projection_matrix
         loss = (-probs * payout_wide).sum(dim=1).mean()
         max_pred = probs.max()
 
@@ -116,20 +122,37 @@ class RPSModel(pl.LightningModule):
         }
         self.log_dict(testues, batch_size=batch.batch_size)
 
-    def predict_step(self, batch):  # pylint: disable=(unused-argument)
+    def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
         self.eval()
         with torch.no_grad():
-            data = self.undirected_transformer(batch)
-            x_dict, edge_index_dict, batch_dict = (
-                data.x_dict,
-                data.edge_index_dict,
-                data.batch_dict,
-            )
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    None,
+                )
             logits = self.model(
                 x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
             )
             probs = softmax(logits, dim=1)
             return probs
+
+    def generate_prob_model(self):
+        data = generate_rps_sample()
+        choices = data["my_hand"].choices
+        predictions = self.predict_step(data)
+        outputs = [
+            (category, float(value)) for category, value in zip(choices, predictions[0])
+        ]
+        outputs = sorted(outputs, key=lambda x: x[0])
+        return outputs
 
 
 if __name__ == "__main__":
@@ -139,6 +162,7 @@ if __name__ == "__main__":
         final_dim=5,
         num_heads=2,
         dropout=0.1,
+        use_projection=True,
         input_bias=True,
         bias=True,
         lr=0.1,
