@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
 )
 from collections import Counter
-from yomibot.graph_models.models import RPSChoiceModel, RPSSuccessModel
+from yomibot.graph_models.models import RPSChoiceModel, RPSSuccessModel, RPSRegretModel
 from yomibot.graph_models.helpers import get_nash_equilibria
 from yomibot.data.card_data import (
     generate_rps_sample,
@@ -106,6 +106,10 @@ def gen_model():
     )
 
 
+def gen_regret_model(barrier=0.1):
+    return RPSRegretModel(barrier=barrier)
+
+
 def gen_report(epoch, model1, model2):
     m1_report = {key: val for key, val in model1.generate_prob_model()}
     m1_report["epoch"] = epoch
@@ -179,18 +183,59 @@ def train_rps_model(
     return model1, model2, model1_history, model2_history
 
 
+def train_rps_regret_model(
+    payout_function1,
+    payout_function2,
+    num_iterations=10,
+    sample_size=1000,
+    barrier_coef=0.1,
+):
+    model1 = gen_regret_model(barrier=barrier_coef / math.sqrt(sample_size))
+    model2 = gen_regret_model(barrier=barrier_coef / math.sqrt(sample_size))
+
+    model1_history = []
+    model2_history = []
+
+    m1_report, m2_report = gen_report(0, model1, model2)
+    model1_history.append(m1_report)
+    model2_history.append(m2_report)
+
+    for epoch in tqdm(range(num_iterations)):
+        model1_set, m1_train, m1_val = generate_rps_dataset(
+            payout_function=payout_function1,
+            self_model=model1,
+            opponent_model=model2,
+            N=sample_size,
+        )
+
+        model2_set, m2_train, m2_val = generate_rps_dataset(
+            payout_function=payout_function2,
+            self_model=model2,
+            opponent_model=model1,
+            N=sample_size,
+        )
+
+        model1.train(model1_set)
+        model2.train(model2_set)
+
+        m1_report, m2_report = gen_report(epoch, model1, model2)
+        model1_history.append(m1_report)
+        model2_history.append(m2_report)
+
+    return model1, model2, model1_history, model2_history
+
+
 A = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
-A
 
 player_1_optimum, player_2_optimum = get_nash_equilibria(A)
 player_1_optimum
 
-
-model1, model2, model1_history, model2_history = train_rps_model(
+model1, model2, model1_history, model2_history = train_rps_regret_model(
     payout_function1=rps_standard_payout,
     payout_function2=rps_standard_payout,
     num_iterations=20,
-    sample_size=1000,
+    sample_size=10000,
+    barrier_coef=0,
 )
 
 model1.generate_prob_model()

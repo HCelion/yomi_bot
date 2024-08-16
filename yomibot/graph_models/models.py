@@ -1,4 +1,5 @@
 import math
+import pandas as pd
 from torch_geometric.data import Batch
 from torch.nn.functional import softmax, mse_loss
 import pytorch_lightning as pl
@@ -381,3 +382,43 @@ if __name__ == "__main__":
 
     test_batch = Batch.from_data_list([data for data in test_set])
     model.predict_step(test_batch)
+
+
+class RPSRegretModel:
+    def __init__(self, barrier=0.1):
+        self.barrier = barrier
+        self.prob_model = [("Paper", 1 / 3), ("Rock", 1 / 3), ("Scissors", 1 / 3)]
+        self.raw_regrets = None
+        self.adjusted_regrets = None
+
+    def train(self, dataset):
+        batch = Batch.from_data_list([data for data in dataset])
+        payouts = batch.payout.numpy().reshape(-1)
+        choices = [item for sublist in batch["my_hand"].choices for item in sublist]
+        regrets = (
+            (batch.payout.reshape((-1, 3)) - batch.my_utility.reshape(-1, 1))
+            .reshape(-1)
+            .numpy()
+        )
+        exp_regrets = (
+            pd.DataFrame({"choices": choices, "regret": regrets})
+            .groupby("choices")
+            .agg(mean_regret=("regret", "mean"))
+            .to_dict()["mean_regret"]
+        )
+        self.raw_regrets = exp_regrets
+        adjusted_regrets = {
+            key: max(value + self.barrier, 0) for key, value in exp_regrets.items()
+        }
+        self.adjusted_regrets = adjusted_regrets
+        total_regret = sum(value for _, value in adjusted_regrets.items())
+        if total_regret <= 0:
+            prob_model = [("Paper", 1 / 3), ("Rock", 1 / 3), ("Scissors", 1 / 3)]
+        else:
+            prob_model = [
+                (key, value / total_regret) for key, value in adjusted_regrets.items()
+            ]
+        self.prob_model = prob_model
+
+    def generate_prob_model(self):
+        return self.prob_model
