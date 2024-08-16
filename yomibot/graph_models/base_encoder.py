@@ -169,3 +169,37 @@ class RPSHandChoiceModel(nn.Module):
             output_tensor = logits
         output_logits = output_tensor.reshape(-1, 3)
         return output_logits
+
+
+class RPSUtilityModel(nn.Module):
+    def __init__(self, hidden_dim, final_dim, input_bias=True, **kwargs):
+        super(RPSUtilityModel, self).__init__()
+        sample_data = generate_rps_sample()
+        card_embed_dim = sample_data["my_hand"].x.shape[-1]
+
+        # Initial encoding
+        self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
+        self.hand_endcoder = HandConv(hidden_dim=hidden_dim, **kwargs)
+        self.final_encoder = nn.Sequential(
+            nn.Linear(2 * hidden_dim, 1, bias=input_bias),
+            nn.LeakyReLU(1, inplace=True),
+        )
+
+    def forward(self, x_dict, edge_index_dict, batch_dict=None):
+        x_dict = {key: self.linear_encoder(x) for key, x in x_dict.items()}
+        x_dict = self.hand_endcoder(x_dict, edge_index_dict)
+        if batch_dict:
+            my_hand_encoding = geom_nn.global_mean_pool(
+                x_dict["my_hand"], batch=batch_dict["my_hand"]
+            )
+            other_hand_encoding = geom_nn.global_mean_pool(
+                x_dict["opponent_hand"], batch=batch_dict["opponent_hand"]
+            )
+        else:
+            my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"], batch=None)
+            other_hand_encoding = geom_nn.global_mean_pool(
+                x_dict["opponent_hand"], batch=None
+            )
+        full_encoding = torch.cat((my_hand_encoding, other_hand_encoding), dim=1)
+        logits = self.final_encoder(full_encoding)
+        return logits

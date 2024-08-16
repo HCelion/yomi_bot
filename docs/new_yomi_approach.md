@@ -56,3 +56,15 @@ Since $\Pi = \Pi^T = \Pi^2$ we can modify the loss to be any of
 $$L = - (\Pi\bar{\mathbf{f}}(s))^T  \bar{\mathbf{g}}(s)  =  - \bar{\mathbf{f}}(s)^T  (\Pi\bar{\mathbf{g}}(s)) = - (\Pi\bar{\mathbf{f}}(s))^T (\Pi\bar{\mathbf{g}}(s)), $$
 
 which would suggest that the gradient of the loss with respect to the parametrisation of $\bar{\mathbf{g}}$ would be a projection as well and leave the simplex intact (though the model itself would naturally renormalise the outputs to sum to 1).
+
+## Regret based approach
+
+While the above reasoning seems in principle sound, in practice the resulting equilibria are not stable, as small mismatches in the hyper parameters lead to over controlling and oscillating behaviour in the space of play.
+
+Instead, we can try for the model to predict the regret per action taken
+
+$$R(a) =  r(a) - r^*,$$
+where $r^*$ is the reward under the best of the available actions and $r(a)$ is the, potentially counterfactual, reward we got for that action.
+Normally these are added together per action and the strategy of a player updates as
+
+$$P(a) = \frac{\max(R(a),0)}{\sum_{a'} \max(a,R(a'))}.$$

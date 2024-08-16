@@ -313,7 +313,9 @@ def get_payout_tensor(my_hand, opponent_action, payout_function):
     return output_tensor
 
 
-def generate_rps_sample(payout_function=rps_standard_payout, opponent_model=None):
+def generate_rps_sample(
+    payout_function=rps_standard_payout, self_model=None, opponent_model=None
+):
     rps_encoder = RPSEmbedding.load()
     my_hand = ["Rock", "Paper", "Scissors"]
     shuffle(my_hand)
@@ -339,8 +341,23 @@ def generate_rps_sample(payout_function=rps_standard_payout, opponent_model=None
         options = [val[0] for val in opponent_model]
         probabilities = [val[1] for val in opponent_model]
         opponent_action = choices(options, probabilities)[0]
+
+    if self_model is None:
+        self_action = choice(my_hand)
+    else:
+        options = [val[0] for val in self_model]
+        probabilities = [val[1] for val in self_model]
+        self_action = choices(options, probabilities)[0]
+
+    rps_data.self_action = self_action
     rps_data.opponent_action = opponent_action
+    rps_data.my_utility = payout_function(self_action, opponent_action)
+    #
+    # payout = get_payout_tensor(my_hand, opponent_action, payout_function)
+    # regret = payout - actual_payout
+    #
     rps_data.payout = get_payout_tensor(my_hand, opponent_action, payout_function)
+    # rps_data.regret = regret
 
     return rps_data
 

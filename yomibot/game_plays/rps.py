@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
 )
 from collections import Counter
-from yomibot.graph_models.models import RPSModel
+from yomibot.graph_models.models import RPSChoiceModel, RPSSuccessModel
 from yomibot.graph_models.helpers import get_nash_equilibria
 from yomibot.data.card_data import (
     generate_rps_sample,
@@ -38,16 +38,29 @@ log.setLevel(logging.ERROR)
 
 
 def generate_rps_dataset(
-    payout_function, model=None, N=1000, batch_size=128, shuffle=True
+    payout_function,
+    self_model=None,
+    opponent_model=None,
+    N=1000,
+    batch_size=128,
+    shuffle=True,
 ):
-    if model:
-        state_model = model.generate_prob_model()
+    if self_model:
+        state_model = self_model.generate_prob_model()
     else:
         state_model = [("Rock", 0.333), ("Paper", 0.333), ("Scissors", 0.333)]
+
+    if opponent_model:
+        opp_state_model = opponent_model.generate_prob_model()
+    else:
+        opp_state_model = [("Rock", 0.333), ("Paper", 0.333), ("Scissors", 0.333)]
+
     dataset = CardDataset(
         [
             generate_rps_sample(
-                payout_function=payout_function, opponent_model=state_model
+                payout_function=payout_function,
+                self_model=state_model,
+                opponent_model=opp_state_model,
             )
             for _ in range(N)
         ]
@@ -76,7 +89,11 @@ def gen_trainer(model_name):
 
 
 def gen_model():
-    return RPSModel(
+    utility_model = RPSSuccessModel(
+        hidden_dim=3, final_dim=2, num_layers=1, num_heads=1, dropout=0
+    )
+    return RPSChoiceModel(
+        utility_model=utility_model,
         hidden_dim=8,
         num_layers=3,
         final_dim=5,
@@ -84,8 +101,7 @@ def gen_model():
         dropout=0.0,
         input_bias=True,
         bias=True,
-        lr=0.0001,
-        use_projection=True,
+        lr=0.001,
         weight_decay=0.001,
     )
 
@@ -134,17 +150,27 @@ def train_rps_model(
 
     for epoch in tqdm(range(num_iterations)):
         model1_set, m1_train, m1_val = generate_rps_dataset(
-            payout_function=payout_function1, model=model2, N=sample_size
+            payout_function=payout_function1,
+            self_model=model1,
+            opponent_model=model2,
+            N=sample_size,
         )
         model2_set, m2_train, m2_val = generate_rps_dataset(
-            payout_function=payout_function2, model=model1, N=sample_size
+            payout_function=payout_function2,
+            self_model=model2,
+            opponent_model=model1,
+            N=sample_size,
         )
 
         trainer1 = gen_trainer("rps_model1")
         trainer2 = gen_trainer("rps_model2")
+        trainer1_success = gen_trainer("rps_model1_success")
+        trainer2_success = gen_trainer("rps_model2_success")
 
         trainer1.fit(model1, m1_train, m1_val)
         trainer2.fit(model2, m2_train, m2_val)
+        trainer1_success.fit(model1.utility_model, m1_train, m1_val)
+        trainer2_success.fit(model2.utility_model, m1_train, m1_val)
 
         m1_report, m2_report = gen_report(epoch, model1, model2)
         model1_history.append(m1_report)
@@ -153,17 +179,18 @@ def train_rps_model(
     return model1, model2, model1_history, model2_history
 
 
-A = np.array([[0, -1, 2], [1, 0, -1], [-1, 1, 0]])
+A = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
 A
 
 player_1_optimum, player_2_optimum = get_nash_equilibria(A)
 player_1_optimum
 
+
 model1, model2, model1_history, model2_history = train_rps_model(
-    payout_function1=rps_non_standard_payout,
-    payout_function2=rps_non_standard_payout_opponent,
-    num_iterations=500,
-    sample_size=100,
+    payout_function1=rps_standard_payout,
+    payout_function2=rps_standard_payout,
+    num_iterations=20,
+    sample_size=1000,
 )
 
 model1.generate_prob_model()
