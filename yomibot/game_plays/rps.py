@@ -209,7 +209,7 @@ def train_rps_regret_model(
         )
 
         model2_set, m2_train, m2_val = generate_rps_dataset(
-            payout_function=payout_function2,
+            payout_function=payout_function1,
             self_model=model2,
             opponent_model=model1,
             N=sample_size,
@@ -233,9 +233,9 @@ player_1_optimum
 model1, model2, model1_history, model2_history = train_rps_regret_model(
     payout_function1=rps_standard_payout,
     payout_function2=rps_standard_payout,
-    num_iterations=20,
+    num_iterations=5,
     sample_size=10000,
-    barrier_coef=0,
+    barrier_coef=1,
 )
 
 model1.generate_prob_model()
