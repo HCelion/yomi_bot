@@ -249,5 +249,84 @@ modify the loss to be any of</p>
 parametrisation of <span class="math inline">\(\bar{\mathbf{g}}\)</span>
 would be a projection as well and leave the simplex intact (though the
 model itself would naturally renormalise the outputs to sum to 1).</p>
+<h2 id="regret-based-approach">Regret based approach</h2>
+<p>While the above reasoning seems in principle sound, in practice the
+resulting equilibria are not stable, as small mismatches in the hyper
+parameters lead to over controlling and oscillating behaviour in the
+space of play.</p>
+<p>Instead, we can try for the model to predict the regret per action
+taken</p>
+<p><span class="math display">\[R(a) =  r(a) - r^*,\]</span> where <span
+class="math inline">\(r^*\)</span> is the reward under the best of the
+available actions and <span class="math inline">\(r(a)\)</span> is the,
+potentially counterfactual, reward we got for that action. Normally
+these are added together per action and the strategy of a player updates
+as</p>
+<p><span class="math display">\[P(a) = \frac{\max(R(a),0)}{\sum_{a&#39;}
+\max(a,R(a&#39;))}.\]</span></p>
+<h2 id="wolf-learning">WOLF learning</h2>
+<p>The problem with the raw regret and performance based update schemes
+is that the models tend to overshot in training and the strategies do
+not converge to the Nash equilibrium. Instead, we will use the WOLF
+strategy, which stands for <em>Win Or Learn Fast</em>. The idea is that
+if to keep an average of the historic stategies in memory and compare
+them to the current strategy. If the current strategy performs better,
+the update step slows down, otherwise it grows. That change in dynamics
+is enough to force the Nash equilibrium.</p>
+<p>In particular, there are two update speeds, one for winning <span
+class="math inline">\(\delta_w\)</span> and one for losing <span
+class="math inline">\(\delta_l\)</span>, with <span
+class="math inline">\(\delta_l &gt; \delta_w\)</span>. Further there is
+an update parameter <span class="math inline">\(\alpha\)</span>. At any
+given state <span class="math inline">\(s\)</span>, we try to measure
+the value of each available action <span class="math inline">\(a\in
+\mathcal{A}.\)</span></p>
+<p>If we know the transition function <span class="math inline">\(T(s,a)
+\rightarrow s&#39;\)</span>, we can update for each action (even the
+unobserved ones, since we know the counterfactual transitions
+<code>s'_{a}</code> and the counterfactual rewards <span
+class="math inline">\(r_a\)</span>).</p>
+<p>We play according to a randomly instantiated policy <span
+class="math inline">\(\pi(s,a)\)</span></p>
+<p><span class="math display">\[Q(s,a) = (1-\alpha)\,Q(s,a) + \alpha
+\left( r_a  + \gamma Q(s&#39;_a)\right).\]</span></p>
+<p>In addition, for each state <span class="math inline">\(s\)</span> we
+calculate the actually observed action <span
+class="math inline">\(a_{obs}\)</span></p>
+<p><span class="math display">\[C(s, a_{obs}) += 1.\]</span></p>
+<p>We can use these counts to keep track of our historical average
+strategy</p>
+<p><span class="math display">\[\bar{\pi}(s,a)  =  \frac{C(s, a)}{\sum_a
+C(s,a)}\]</span></p>
+<p>When we observe the other players reaction and the rewards and
+consequences of all the actions we could have played according to our
+strategy, we can try to establish which, <span
+class="math inline">\(\pi(s,a)\)</span> or <span
+class="math inline">\(\bar{\pi}(s,a)\)</span> is better, by averaging
+over the expected value in state <span
+class="math inline">\(s\)</span></p>
+<p><span class="math display">\[V_{\pi}(s) = \sum_a \pi(s,a)
+Q(s,a).\]</span></p>
+<p>If <span class="math inline">\(V_{\pi}(s) &gt;
+V_{\bar{\pi}}\)</span>, i.e. our current strategy is better than the
+historic average, we use <span class="math inline">\(\delta =
+\delta_w\)</span>, otherwise we use <span class="math inline">\(delta =
+\delta_l &gt; \delta_w\)</span>. We update the action that maximises the
+new value function</p>
+<p><span class="math display">\[a_{max} = \max_{a} Q(s,a)\]</span></p>
+<p>Then</p>
+<p><span class="math display">\[\pi_{s,a_{max}} = \pi_{s,a_{max}} +
+\delta\]</span> and all other actions get reduced in likelihood, whereas
+probability mass is taken equally from all non-maximising actions</p>
+<p><span class="math display">\[\pi_{s,a} = \pi_{s,a} -
+\frac{\delta}{|A|-1}.\]</span></p>
+<p>Also we have to clip and normalise to guarantee a correct probability
+distribution for <span class="math inline">\(\pi(s,a)\)</span>, since
+updates can in principle push <span
+class="math inline">\(\pi(s,a)\)</span> outside the region <span
+class="math inline">\([0,1]\)</span>. Because we constantly compare to
+the average value of the long term strategy, when we are doing well, we
+lower the learning rate and stay closer to the true equilibrium
+value.</p>
 </body>
 </html>

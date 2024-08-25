@@ -68,3 +68,43 @@ where $r^*$ is the reward under the best of the available actions and $r(a)$ is 
 Normally these are added together per action and the strategy of a player updates as
 
 $$P(a) = \frac{\max(R(a),0)}{\sum_{a'} \max(a,R(a'))}.$$
+
+
+## WOLF learning
+
+The problem with the raw regret and performance based update schemes is that the models tend to overshot in training and the strategies do not converge to the Nash equilibrium.
+Instead, we will use the WOLF strategy, which stands for *Win Or Learn Fast*. The idea is that if to keep an average of the historic stategies in memory and compare them to the current strategy. If the current strategy performs better, the update step slows down, otherwise it grows. That change in dynamics is enough to force the Nash equilibrium.
+
+In particular, there are two update speeds, one for winning $\delta_w$ and one for losing $\delta_l$, with $\delta_l > \delta_w$. Further there is an update parameter $\alpha$.
+At any given state $s$, we try to measure the value of each available action $a\in \mathcal{A}.$
+
+If we know the transition function $T(s,a) \rightarrow s'$, we can update for each action (even the unobserved ones, since we know the counterfactual transitions `s'_{a}` and the counterfactual rewards $r_a$).
+
+We play according to a randomly instantiated policy $\pi(s,a)$
+
+$$Q(s,a) = (1-\alpha)\,Q(s,a) + \alpha \left( r_a  + \gamma Q(s'_a)\right).$$
+
+In addition, for each state $s$ we calculate the actually observed action $a_{obs}$
+
+$$C(s, a_{obs}) += 1.$$
+
+We can use these counts to keep track of our historical average strategy
+
+$$\bar{\pi}(s,a)  =  \frac{C(s, a)}{\sum_a C(s,a)}$$
+
+When we observe the other players reaction and the rewards and consequences of all the actions we could have played according to our strategy, we can try to establish which, $\pi(s,a)$ or $\bar{\pi}(s,a)$ is better, by averaging over the expected value in state $s$
+
+$$V_{\pi}(s) = \sum_a \pi(s,a) Q(s,a).$$
+
+If $V_{\pi}(s) > V_{\bar{\pi}}$, i.e. our current strategy is better than the historic average, we use $\delta = \delta_w$, otherwise we use $delta = \delta_l > \delta_w$. We update the action that maximises the new value function
+
+$$a_{max} = \max_{a} Q(s,a)$$
+
+Then
+
+$$\pi_{s,a_{max}} = \pi_{s,a_{max}} + \delta$$
+and all other actions get reduced in likelihood, whereas probability mass is taken equally from all non-maximising actions
+
+$$\pi_{s,a} = \pi_{s,a} - \frac{\delta}{|A|-1}.$$
+
+Also we have to clip and normalise to guarantee a correct probability distribution for $\pi(s,a)$, since updates can in principle push $\pi(s,a)$ outside the region $[0,1]$. Because we constantly compare to the average value of the long term strategy, when we are doing well, we lower the learning rate and stay closer to the true equilibrium value.
