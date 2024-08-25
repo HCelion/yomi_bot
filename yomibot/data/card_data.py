@@ -281,13 +281,13 @@ def rps_standard_payout(card_1, card_2):
 def rps_non_standard_payout(card_1, card_2):
     card_combo = (card_1, card_2)
     if card_combo in [("Rock", "Scissors")]:
-        return +2
-    elif card_combo in [("Scissors", "Rock")]:
-        return -1
-    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
         return +1
+    elif card_combo in [("Scissors", "Rock")]:
+        return -1 / 2
+    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
+        return +1 / 2
     elif card_combo in [("Rock", "Paper"), ("Paper", "Scissors")]:
-        return -1
+        return -1 / 2
     else:
         return 0
 
@@ -295,13 +295,13 @@ def rps_non_standard_payout(card_1, card_2):
 def rps_non_standard_payout_opponent(card_1, card_2):
     card_combo = (card_1, card_2)
     if card_combo in [("Rock", "Scissors")]:
-        return +1
+        return +1 / 2
     elif card_combo in [("Scissors", "Rock")]:
-        return -2
-    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
-        return +1
-    elif card_combo in [("Rock", "Paper"), ("Paper", "Scissors")]:
         return -1
+    elif card_combo in [("Paper", "Rock"), ("Scissors", "Paper")]:
+        return +1 / 2
+    elif card_combo in [("Rock", "Paper"), ("Paper", "Scissors")]:
+        return -1 / 2
     else:
         return 0
 

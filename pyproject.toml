@@ -18,6 +18,7 @@ torch = "^2.4.0"
 pytorch-lightning = "^2.3.3"
 torch-geometric = "^2.5.3"
 nashpy = "^0.0.41"
+python-ternary = "^1.0.8"
 
 [tool.poetry.dev-dependencies]
 

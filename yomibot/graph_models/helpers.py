@@ -21,9 +21,12 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):  # pylint: disable
 
 def get_nash_equilibria(A):
     import nashpy as nash
-    import numpy as np
 
     rps = nash.Game(A, -A)
     eqs = rps.support_enumeration()
     player_1, player_2 = list(eqs)[0]
-    return player_1, player_2
+    order = ("Rock", "Paper", "Scissors")
+    optimum_1 = {action: prob for action, prob in zip(order, player_1)}
+    optimum_2 = {action: prob for action, prob in zip(order, player_2)}
+
+    return optimum_1, optimum_2

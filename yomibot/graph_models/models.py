@@ -1,8 +1,9 @@
 import math
 import pandas as pd
 import numpy as np
+import random
 from torch_geometric.data import Batch
-from torch.nn.functional import softmax, mse_loss
+from torch.nn.functional import mse_loss
 import pytorch_lightning as pl
 import torch
 from torch import optim
@@ -17,6 +18,10 @@ from yomibot.graph_models.base_encoder import RPSHandChoiceModel, RPSUtilityMode
 from yomibot.graph_models.helpers import CosineWarmupScheduler
 from yomibot.data.card_data import generate_rps_sample, CardDataset
 from yomibot.common import paths
+
+
+def clip_value(value):
+    return max(0, min(value, 1))
 
 
 class RPSSuccessModel(pl.LightningModule):
@@ -138,7 +143,7 @@ class RPSSuccessModel(pl.LightningModule):
 
             return pred_utility
 
-    def generate_prob_model(self):
+    def generate_prob_model(self, explore=False):
         data = generate_rps_sample()
         choices = data["my_hand"].choices
         predictions = self.predict_step(data)
@@ -287,7 +292,7 @@ class RPSChoiceModel(pl.LightningModule):
 
             return pred_regrets
 
-    def generate_prob_model(self):
+    def generate_prob_model(self, explore=False):
         data = generate_rps_sample()
         choices = data["my_hand"].choices
         predictions = self.predict_step(data)
@@ -296,6 +301,43 @@ class RPSChoiceModel(pl.LightningModule):
         ]
         outputs = sorted(outputs, key=lambda x: x[0])
         return outputs
+
+
+class RPSRandomWWeightModel:
+    def __init__(self, eta):
+        self.eta = eta
+        self.weights = {"Paper": 1, "Rock": 1, "Scissors": 1}
+        self.update_iterations = 0
+
+    def train(self, dataset):
+        for data in dataset:
+            self.update_weights(data)
+
+    def update_weights(self, data):
+        losses = (
+            (data.payout.max() - data.payout) / (data.payout.max() - data.payout).max()
+        ).reshape(-1)
+        new_weights = {}
+        for action, loss in zip(data["my_hand"]["choices"], losses):
+            update_factor = math.pow((1 - self.eta), float(loss))
+            new_weights[action] = self.weights[action] * update_factor
+        self.weights = new_weights
+        self.update_iterations += 1
+
+        if (self.update_iterations % 1000) == 0:
+            self.normalise_weights()
+
+    def normalise_weights(self):
+        total_weight = sum(value for _, value in self.weights.items())
+        scale_factor = 3 / total_weight
+        for key, value in self.weights.items():
+            self.weights[key] *= scale_factor
+
+    def generate_prob_model(self, explore=False):
+        total_weight = sum(value for _, value in self.weights.items())
+        prob_model = [(key, value / total_weight) for key, value in self.weights.items()]
+        sorted(prob_model, key=lambda x: x[0])
+        return prob_model
 
 
 class RPSRegretModel:
@@ -307,7 +349,6 @@ class RPSRegretModel:
 
     def train(self, dataset):
         batch = Batch.from_data_list([data for data in dataset])
-        payouts = batch.payout.numpy().reshape(-1)
         choices = [item for sublist in batch["my_hand"].choices for item in sublist]
         regrets = (
             (batch.payout.reshape((-1, 3)) - batch.my_utility.reshape(-1, 1))
@@ -335,8 +376,88 @@ class RPSRegretModel:
             ]
         self.prob_model = prob_model
 
-    def generate_prob_model(self):
+    def generate_prob_model(self, explore=False):
         return self.prob_model
+
+
+class RPSWolfModel:
+    def __init__(self, alpha=0.1, delta_win=0.1, delta_lose=0.3, explore_rate=0.1):
+        self.alpha = alpha
+        self.delta_win = delta_win
+        self.delta_lose = delta_lose
+        self.q = {"Rock": 0, "Paper": 0, "Scissors": 0}
+        self.pi = {"Rock": 1 / 3, "Paper": 1 / 3, "Scissors": 1 / 3}
+        self.start_model = {"Rock": 1 / 3, "Paper": 1 / 3, "Scissors": 1 / 3}
+        self.observed_policy_count = {"Rock": 1, "Paper": 1, "Scissors": 1}
+        self.average_policy = {"Rock": 1 / 3, "Paper": 1 / 3, "Scissors": 1 / 3}
+        self.update_iterations = 0
+        self.explore_rate = explore_rate
+
+    def train(self, dataset):
+        for data in dataset:
+            self.update(data)
+
+    def update(self, data):
+        taken_action = data.self_action
+        for action, reward in zip(data["my_hand"].choices, data.payout):
+            self.q[action] = (1 - self.alpha) * self.q[action] + self.alpha * float(
+                reward
+            )
+
+        self.update_iterations += 1
+        self.update_average_policy(taken_action)
+
+        expected_pi_value = sum(self.q[key] * self.pi[key] for key in self.pi)
+        expected_avg_value = sum(
+            self.q[key] * self.average_policy[key] for key in self.average_policy
+        )
+        delta = (
+            self.delta_win
+            if (expected_pi_value >= expected_avg_value)
+            else self.delta_lose
+        )
+
+        max_action = max(
+            {
+                action: float(payout)
+                for action, payout in zip(data["my_hand"].choices, data.payout)
+            },
+            key=lambda k: self.q[k],
+        )
+
+        for key in self.pi:
+            if key == max_action:
+                update_value = delta
+            else:
+                update_value = -delta / 2
+
+            new_value = clip_value(self.pi[key] + update_value)
+            self.pi[key] = new_value
+
+        self.normalise_policy(self.pi)
+
+    def update_average_policy(self, taken_action):
+        self.observed_policy_count[taken_action] += 1
+        total_weight = sum(val for val in self.observed_policy_count.values())
+        self.average_policy = {
+            key: count_value / total_weight
+            for key, count_value in self.observed_policy_count.items()
+        }
+
+    def normalise_policy(self, policy):
+        total_weight = sum(value for _, value in policy.items())
+        scale_factor = 1 / total_weight
+        for key, value in policy.items():
+            policy[key] *= scale_factor
+
+    def generate_prob_model(self, explore=False):
+        if (random.random() < self.explore_rate) and explore:
+            # Sometimes we explore
+            prob_model = [(key, value) for key, value in self.start_model.items()]
+        else:
+            prob_model = [(key, value) for key, value in self.pi.items()]
+        sorted(prob_model, key=lambda x: x[0])
+        return prob_model
 
 
 if __name__ == "__main__":
