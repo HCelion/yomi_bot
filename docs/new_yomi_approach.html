@@ -348,8 +348,7 @@ class="math inline">\(s \rightarrow s&#39;\)</span>.</p>
 <p>For the average policy, we can just use the actually played actions
 as target for new pairs of <span class="math inline">\(s,a\)</span></p>
 <p><span class="math display">\[L_{\mathbf{\bar{\pi}}} =
-(\mathbf{\bar{\pi}}(s) - \mathbf{1}_a)^T\cdot(\mathbf{\bar{\pi}}(s) -
-\mathbf{1}_a),\]</span> where <span
+\mbox{LogLoss}(\mathbf{\bar{\pi}}(s), \mathbf{1}_a)\]</span> where <span
 class="math inline">\(\mathbf{1}_a\)</span> is a vector that is <span
 class="math inline">\(1\)</span> for the observed action and zero
 otherwise.</p>
@@ -374,8 +373,8 @@ should be larger to accelerate policy movement according to the WoLF
 principle.</p>
 <p><span class="math display">\[L_{\pi(s,a)} =
 \mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) -
-\mathbf{\pi}(s)\right) ) (\mathbf{\pi}(s) -
-\mathbf{Q_{\mbox{max}}}(s))^2,\]</span></p>
+\mathbf{\pi}(s)\right) )
+\mbox{LogLoss}(\mathbf{\pi}(s),\mathbf{Q_{\mbox{max}}} ),\]</span></p>
 <p>where <span class="math inline">\(\mathbf{Q_{\mbox{max}}} =
 1/|A_{max}|\)</span> for all actions <span
 class="math inline">\(A_{max}\)</span> that maximise <span

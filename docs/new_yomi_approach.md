@@ -117,7 +117,7 @@ We now need to find loss functions for these such that we can train a model on i
 
 For the average policy, we can just use the actually played actions as target for new pairs of $s,a$
 
-$$L_{\mathbf{\bar{\pi}}} = (\mathbf{\bar{\pi}}(s) - \mathbf{1}_a)^T\cdot(\mathbf{\bar{\pi}}(s) - \mathbf{1}_a),$$
+$$L_{\mathbf{\bar{\pi}}} = \mbox{LogLoss}(\mathbf{\bar{\pi}}(s), \mathbf{1}_a)$$
 where $\mathbf{1}_a$ is a vector that is $1$ for the observed action and zero otherwise.
 
 For the action value function $Q(s,a)$ we can use the counterfactual loss
@@ -129,7 +129,7 @@ In particular for the Yomi game, we might actually want to set $\mathbf{r} = 0, 
 
 Lastly we need the loss for the actual policy. If the actual policy is in a losing state compared to the long term average, then the loss should be larger to accelerate policy movement according to the WoLF principle.
 
-$$L_{\pi(s,a)} = \mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) - \mathbf{\pi}(s)\right) ) (\mathbf{\pi}(s) - \mathbf{Q_{\mbox{max}}}(s))^2,$$
+$$L_{\pi(s,a)} = \mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) - \mathbf{\pi}(s)\right) ) \mbox{LogLoss}(\mathbf{\pi}(s),\mathbf{Q_{\mbox{max}}} ),$$
 
 
 where $\mathbf{Q_{\mbox{max}}} = 1/|A_{max}|$ for all actions $A_{max}$ that maximise $\mathbf{Q}(s,a)$ and zero otherwise. The $\mathbf{\pi}(s)$ should not contribute to the gradient though, it is just accentuating the loss.

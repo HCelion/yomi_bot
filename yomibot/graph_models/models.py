@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import random
 from torch_geometric.data import Batch
-from torch.nn.functional import mse_loss
+from torch.nn.functional import mse_loss, softmax
 import pytorch_lightning as pl
 import torch
 from torch import optim
@@ -291,6 +291,151 @@ class RPSChoiceModel(pl.LightningModule):
                     pred_regrets[i] = pred_regrets[i] / row_sum
 
             return pred_regrets
+
+    def generate_prob_model(self, explore=False):
+        data = generate_rps_sample()
+        choices = data["my_hand"].choices
+        predictions = self.predict_step(data)
+        outputs = [
+            (category, float(value)) for category, value in zip(choices, predictions[0])
+        ]
+        outputs = sorted(outputs, key=lambda x: x[0])
+        return outputs
+
+
+class RPSAvgActionModel(pl.LightningModule):
+    def __init__(
+        self,
+        lr=0.1,
+        weight_decay=0.01,
+        warmup=2,
+        max_iters=2000,
+        **model_kwargs,
+    ):
+        super().__init__()
+        # Saving hyperparameters
+        self.save_hyperparameters()
+        self.undirected_transformer = ToUndirected()
+        self.example_data = generate_rps_sample()
+        self.model = RPSHandChoiceModel(**model_kwargs)
+        self.loss_func = torch.nn.CrossEntropyLoss(reduction="mean")
+
+    def forward(  # pylint: disable=(too-many-locals
+        self,
+        data,
+        mode="train",  # pylint: disable=(unused-argument
+    ):
+        data = self.undirected_transformer(data)
+
+        x_dict, edge_index_dict, batch_dict = (
+            data.x_dict,
+            data.edge_index_dict,
+            data.batch_dict,
+        )
+
+        action_mapping = {"Rock": 0, "Paper": 1, "Scissors": 2}
+        chosen_actions = torch.tensor(
+            [action_mapping[val] for val in data.self_action]
+        ).reshape(-1, 1)
+        mapped_list_of_lists = torch.tensor(
+            [
+                [action_mapping[item] for item in sublist]
+                for sublist in data["my_hand"].choices
+            ]
+        ).reshape(-1, 3)
+
+        best_actions = (chosen_actions == mapped_list_of_lists).float()
+        predicted_densities = self.model(
+            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+        )
+        predictions = softmax(predicted_densities)
+        loss = self.loss_func(predicted_densities, target=best_actions)
+        max_pred = predictions.max()
+
+        return loss, max_pred
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.weight_decay,
+        )
+
+        # Apply lr scheduler per step
+        lr_scheduler = CosineWarmupScheduler(
+            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": lr_scheduler,
+            "monitor": "val_loss",
+        }
+
+    def training_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="train"
+        )
+        values = {
+            "max_pred": max_pred,
+            "train_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+        return loss
+
+    def validation_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="val"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        values = {
+            "val_max_pred": max_pred,
+            "val_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+
+    def test_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="test"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        testues = {
+            "test_max_pred": max_pred,
+            "test_loss": loss,
+        }
+        self.log_dict(testues, batch_size=batch.batch_size)
+
+    def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
+        self.eval()
+
+        with torch.no_grad():
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    None,
+                )
+            predicted_densities = self.model(
+                x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+            )
+            predictions = torch.exp(predicted_densities) / (
+                torch.exp(predicted_densities).sum(axis=1).reshape(-1, 1)
+            )
+
+            return predictions
 
     def generate_prob_model(self, explore=False):
         data = generate_rps_sample()

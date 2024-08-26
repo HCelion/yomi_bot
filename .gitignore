@@ -174,4 +174,4 @@ cython_debug/
 #.idea/
 *.whl
 ./data
-./model
+/model
