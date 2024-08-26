@@ -108,3 +108,28 @@ and all other actions get reduced in likelihood, whereas probability mass is tak
 $$\pi_{s,a} = \pi_{s,a} - \frac{\delta}{|A|-1}.$$
 
 Also we have to clip and normalise to guarantee a correct probability distribution for $\pi(s,a)$, since updates can in principle push $\pi(s,a)$ outside the region $[0,1]$. Because we constantly compare to the average value of the long term strategy, when we are doing well, we lower the learning rate and stay closer to the true equilibrium value.
+
+## WOLF in deeper models
+
+If we want to roll out the Wolf strategy to a fuller problem, such as Yomi, we run into some problems. For once, the state space $\mathcal{S}$ can become very large and there is some structure in it, so it would be reasonable to expect that nearby states to $s$, for example with similar but not exactly the same cards and enemies, we can improve on learning.
+Our goal is to fomulate the problem such that our state space dependence is handled by a deep model. All counts and states that are indexed by $s$ will now be handled by a model. These are $Q(s,a), \bar{\pi}(s,a)$ and $\pi(s,a).$
+We now need to find loss functions for these such that we can train a model on it. As before we assume we know the rewards, which are trained functions $V$ of the value of the transition $s \rightarrow s'$.
+
+For the average policy, we can just use the actually played actions as target for new pairs of $s,a$
+
+$$L_{\mathbf{\bar{\pi}}} = (\mathbf{\bar{\pi}}(s) - \mathbf{1}_a)^T\cdot(\mathbf{\bar{\pi}}(s) - \mathbf{1}_a),$$
+where $\mathbf{1}_a$ is a vector that is $1$ for the observed action and zero otherwise.
+
+For the action value function $Q(s,a)$ we can use the counterfactual loss
+
+$$L_{Q(s,a)} = (Q(s,a)- (\mathbf{r} + \gamma V(\mathbf{s'})))^T\cdot(Q(s,a)- (\mathbf{r} + \gamma V(\mathbf{s'}))),$$
+
+where $V(\mathbf{s'})$ is our model to predict the winningness of a state applied to all $s'$ that follow from $s+a'=s'$ over all available actions at $s$.
+In particular for the Yomi game, we might actually want to set $\mathbf{r} = 0, \gamma=1$ and purely optimise for the value of the next game states, since the only true reward is winning or losing.
+
+Lastly we need the loss for the actual policy. If the actual policy is in a losing state compared to the long term average, then the loss should be larger to accelerate policy movement according to the WoLF principle.
+
+$$L_{\pi(s,a)} = \mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) - \mathbf{\pi}(s)\right) ) (\mathbf{\pi}(s) - \mathbf{Q_{\mbox{max}}}(s))^2,$$
+
+
+where $\mathbf{Q_{\mbox{max}}} = 1/|A_{max}|$ for all actions $A_{max}$ that maximise $\mathbf{Q}(s,a)$ and zero otherwise. The $\mathbf{\pi}(s)$ should not contribute to the gradient though, it is just accentuating the loss.

@@ -328,5 +328,59 @@ class="math inline">\([0,1]\)</span>. Because we constantly compare to
 the average value of the long term strategy, when we are doing well, we
 lower the learning rate and stay closer to the true equilibrium
 value.</p>
+<h2 id="wolf-in-deeper-models">WOLF in deeper models</h2>
+<p>If we want to roll out the Wolf strategy to a fuller problem, such as
+Yomi, we run into some problems. For once, the state space <span
+class="math inline">\(\mathcal{S}\)</span> can become very large and
+there is some structure in it, so it would be reasonable to expect that
+nearby states to <span class="math inline">\(s\)</span>, for example
+with similar but not exactly the same cards and enemies, we can improve
+on learning. Our goal is to fomulate the problem such that our state
+space dependence is handled by a deep model. All counts and states that
+are indexed by <span class="math inline">\(s\)</span> will now be
+handled by a model. These are <span class="math inline">\(Q(s,a),
+\bar{\pi}(s,a)\)</span> and <span
+class="math inline">\(\pi(s,a).\)</span> We now need to find loss
+functions for these such that we can train a model on it. As before we
+assume we know the rewards, which are trained functions <span
+class="math inline">\(V\)</span> of the value of the transition <span
+class="math inline">\(s \rightarrow s&#39;\)</span>.</p>
+<p>For the average policy, we can just use the actually played actions
+as target for new pairs of <span class="math inline">\(s,a\)</span></p>
+<p><span class="math display">\[L_{\mathbf{\bar{\pi}}} =
+(\mathbf{\bar{\pi}}(s) - \mathbf{1}_a)^T\cdot(\mathbf{\bar{\pi}}(s) -
+\mathbf{1}_a),\]</span> where <span
+class="math inline">\(\mathbf{1}_a\)</span> is a vector that is <span
+class="math inline">\(1\)</span> for the observed action and zero
+otherwise.</p>
+<p>For the action value function <span
+class="math inline">\(Q(s,a)\)</span> we can use the counterfactual
+loss</p>
+<p><span class="math display">\[L_{Q(s,a)} = (Q(s,a)- (\mathbf{r} +
+\gamma V(\mathbf{s&#39;})))^T\cdot(Q(s,a)- (\mathbf{r} + \gamma
+V(\mathbf{s&#39;}))),\]</span></p>
+<p>where <span class="math inline">\(V(\mathbf{s&#39;})\)</span> is our
+model to predict the winningness of a state applied to all <span
+class="math inline">\(s&#39;\)</span> that follow from <span
+class="math inline">\(s+a&#39;=s&#39;\)</span> over all available
+actions at <span class="math inline">\(s\)</span>. In particular for the
+Yomi game, we might actually want to set <span
+class="math inline">\(\mathbf{r} = 0, \gamma=1\)</span> and purely
+optimise for the value of the next game states, since the only true
+reward is winning or losing.</p>
+<p>Lastly we need the loss for the actual policy. If the actual policy
+is in a losing state compared to the long term average, then the loss
+should be larger to accelerate policy movement according to the WoLF
+principle.</p>
+<p><span class="math display">\[L_{\pi(s,a)} =
+\mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) -
+\mathbf{\pi}(s)\right) ) (\mathbf{\pi}(s) -
+\mathbf{Q_{\mbox{max}}}(s))^2,\]</span></p>
+<p>where <span class="math inline">\(\mathbf{Q_{\mbox{max}}} =
+1/|A_{max}|\)</span> for all actions <span
+class="math inline">\(A_{max}\)</span> that maximise <span
+class="math inline">\(\mathbf{Q}(s,a)\)</span> and zero otherwise. The
+<span class="math inline">\(\mathbf{\pi}(s)\)</span> should not
+contribute to the gradient though, it is just accentuating the loss.</p>
 </body>
 </html>
