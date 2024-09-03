@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import random
 from torch_geometric.data import Batch
-from torch.nn.functional import mse_loss, softmax
+from torch.nn.functional import mse_loss, softmax, sigmoid
 import pytorch_lightning as pl
 import torch
 from torch import optim
@@ -154,155 +154,6 @@ class RPSSuccessModel(pl.LightningModule):
         return outputs
 
 
-class RPSChoiceModel(pl.LightningModule):
-    def __init__(
-        self,
-        utility_model,
-        lr=0.1,
-        weight_decay=0.01,
-        warmup=2,
-        max_iters=2000,
-        **model_kwargs,
-    ):
-        super().__init__()
-        # Saving hyperparameters
-        self.save_hyperparameters()
-        self.undirected_transformer = ToUndirected()
-        self.example_data = generate_rps_sample()
-        self.model = RPSHandChoiceModel(**model_kwargs)
-        self.utility_model = utility_model
-
-    def forward(  # pylint: disable=(too-many-locals
-        self,
-        data,
-        mode="train",  # pylint: disable=(unused-argument
-    ):
-        data = self.undirected_transformer(data)
-
-        x_dict, edge_index_dict, batch_dict, actual_payout = (
-            data.x_dict,
-            data.edge_index_dict,
-            data.batch_dict,
-            data.payout,
-        )
-
-        predicted_utility = self.utility_model.predict_step(data, batch_dict)
-
-        predicted_regret = self.model(
-            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
-        )
-
-        payouts_wide, _ = to_dense_batch(
-            actual_payout, batch_dict["my_hand"], max_num_nodes=3
-        )
-        payouts_wide = payouts_wide.reshape(-1, 3)
-
-        immediate_regrets = payouts_wide - predicted_utility
-
-        loss = mse_loss(predicted_regret, target=immediate_regrets)
-        max_pred = predicted_regret.max()
-
-        return loss, max_pred
-
-    def configure_optimizers(self):
-        optimizer = optim.Adam(
-            self.parameters(),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
-        )
-
-        # Apply lr scheduler per step
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
-            "monitor": "val_loss",
-        }
-
-    def training_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
-        (  # pylint: disable=(unbalanced-tuple-unpacking)
-            loss,
-            max_pred,
-        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
-            batch, mode="train"
-        )
-        values = {
-            "max_pred": max_pred,
-            "train_loss": loss,
-        }
-        self.log_dict(values, batch_size=batch.batch_size)
-        return loss
-
-    def validation_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
-        (  # pylint: disable=(unbalanced-tuple-unpacking)
-            loss,
-            max_pred,
-        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
-            batch, mode="val"
-        )  # pylint: disable=(unbalanced-tuple-unpacking)
-        values = {
-            "val_max_pred": max_pred,
-            "val_loss": loss,
-        }
-        self.log_dict(values, batch_size=batch.batch_size)
-
-    def test_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
-        (  # pylint: disable=(unbalanced-tuple-unpacking)
-            loss,
-            max_pred,
-        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
-            batch, mode="test"
-        )  # pylint: disable=(unbalanced-tuple-unpacking)
-        testues = {
-            "test_max_pred": max_pred,
-            "test_loss": loss,
-        }
-        self.log_dict(testues, batch_size=batch.batch_size)
-
-    def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
-        self.eval()
-
-        with torch.no_grad():
-            data = self.undirected_transformer(data)
-            if batch is not None:
-                x_dict, edge_index_dict, batch_dict = (
-                    data.x_dict,
-                    data.edge_index_dict,
-                    data.batch_dict,
-                )
-            else:
-                x_dict, edge_index_dict, batch_dict = (
-                    data.x_dict,
-                    data.edge_index_dict,
-                    None,
-                )
-            pred_regrets = self.model(
-                x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
-            )
-
-            pred_regrets = torch.maximum(pred_regrets, torch.zeros_like(pred_regrets))
-            for i in range(pred_regrets.size(0)):
-                row_sum = pred_regrets[i].sum()
-                if row_sum == 0:
-                    pred_regrets[i] = torch.full_like(pred_regrets[i], 1 / 3)
-                else:
-                    pred_regrets[i] = pred_regrets[i] / row_sum
-
-            return pred_regrets
-
-    def generate_prob_model(self, explore=False):
-        data = generate_rps_sample()
-        choices = data["my_hand"].choices
-        predictions = self.predict_step(data)
-        outputs = [
-            (category, float(value)) for category, value in zip(choices, predictions[0])
-        ]
-        outputs = sorted(outputs, key=lambda x: x[0])
-        return outputs
-
-
 class RPSAvgActionModel(pl.LightningModule):
     def __init__(
         self,
@@ -414,6 +265,292 @@ class RPSAvgActionModel(pl.LightningModule):
     def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
         self.eval()
 
+        with torch.no_grad():
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    None,
+                )
+            predicted_densities = self.model(
+                x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+            )
+            predictions = torch.exp(predicted_densities) / (
+                torch.exp(predicted_densities).sum(axis=1).reshape(-1, 1)
+            )
+
+            return predictions
+
+    def generate_prob_model(self, explore=False):
+        data = generate_rps_sample()
+        choices = data["my_hand"].choices
+        predictions = self.predict_step(data)
+        outputs = [
+            (category, float(value)) for category, value in zip(choices, predictions[0])
+        ]
+        outputs = sorted(outputs, key=lambda x: x[0])
+        return outputs
+
+
+class RPSChoiceModel(pl.LightningModule):
+    def __init__(
+        self,
+        lr=0.1,
+        weight_decay=0.01,
+        warmup=2,
+        max_iters=2000,
+        **model_kwargs,
+    ):
+        super().__init__()
+        # Saving hyperparameters
+        self.save_hyperparameters()
+        self.undirected_transformer = ToUndirected()
+        self.example_data = generate_rps_sample()
+        self.model = RPSHandChoiceModel(**model_kwargs)
+
+    def forward(  # pylint: disable=(too-many-locals
+        self,
+        data,
+        mode="train",  # pylint: disable=(unused-argument
+    ):
+        data = self.undirected_transformer(data)
+
+        x_dict, edge_index_dict, batch_dict, actual_payout = (
+            data.x_dict,
+            data.edge_index_dict,
+            data.batch_dict,
+            data.payout,
+        )
+        predicted_value = self.model(
+            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+        )
+
+        payouts_wide, _ = to_dense_batch(
+            actual_payout, batch_dict["my_hand"], max_num_nodes=3
+        )
+        payouts_wide = payouts_wide.reshape(-1, 3)
+        loss = mse_loss(predicted_value, target=payouts_wide)
+        max_pred = predicted_value.max()
+
+        return loss, max_pred
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.weight_decay,
+        )
+
+        # Apply lr scheduler per step
+        lr_scheduler = CosineWarmupScheduler(
+            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": lr_scheduler,
+            "monitor": "val_loss",
+        }
+
+    def training_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="train"
+        )
+        values = {
+            "max_pred": max_pred,
+            "train_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+        return loss
+
+    def validation_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="val"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        values = {
+            "val_max_pred": max_pred,
+            "val_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+
+    def test_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="test"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        testues = {
+            "test_max_pred": max_pred,
+            "test_loss": loss,
+        }
+        self.log_dict(testues, batch_size=batch.batch_size)
+
+    def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
+        self.eval()
+
+        with torch.no_grad():
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    None,
+                )
+            pred_regrets = self.model(
+                x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+            )
+
+            # pred_regrets = torch.maximum(pred_regrets, torch.zeros_like(pred_regrets))
+            # for i in range(pred_regrets.size(0)):
+            #     row_sum = pred_regrets[i].sum()
+            #     if row_sum == 0:
+            #         pred_regrets[i] = torch.full_like(pred_regrets[i], 1 / 3)
+            #     else:
+            #         pred_regrets[i] = pred_regrets[i] / row_sum
+
+            return pred_regrets
+
+
+class RPSCurrentActionModel(pl.LightningModule):
+    def __init__(
+        self,
+        action_value_model,
+        avg_policy_model,
+        lr=0.1,
+        weight_decay=0.01,
+        warmup=2,
+        max_iters=2000,
+        wolf_width=0.5,
+        **model_kwargs,
+    ):
+        super().__init__()
+        # Saving hyperparameters
+        self.save_hyperparameters()
+        self.undirected_transformer = ToUndirected()
+        self.example_data = generate_rps_sample()
+        self.model = RPSHandChoiceModel(**model_kwargs)
+        self.action_value_model = action_value_model
+        self.avg_policy_model = avg_policy_model
+        self.loss_func = torch.nn.CrossEntropyLoss(reduction="none")
+        self.wolf_width = wolf_width
+
+    def forward(  # pylint: disable=(too-many-locals
+        self,
+        data,
+        mode="train",  # pylint: disable=(unused-argument
+    ):
+        data = self.undirected_transformer(data)
+        with torch.no_grad():
+            action_values = self.action_value_model.predict_step(
+                data, batch=data.batch_dict
+            )
+            avg_policies = self.avg_policy_model.predict_step(data, batch=data.batch_dict)
+            current_policy_frozen = self.predict_step(data, batch=data.batch_dict)
+
+        x_dict, edge_index_dict, batch_dict = (
+            data.x_dict,
+            data.edge_index_dict,
+            data.batch_dict,
+        )
+
+        current_policy_logit = self.model(
+            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+        )
+
+        historic_exp_reward = (action_values * avg_policies).sum(axis=1).reshape(-1, 1)
+        current_exp_reward = (
+            (action_values * current_policy_frozen).sum(axis=1).reshape(-1, 1)
+        )
+
+        max_indices = torch.argmax(action_values, dim=1)
+        best_actions = torch.zeros_like(action_values)
+        best_actions = best_actions.scatter_(1, max_indices.unsqueeze(1), 1)
+        best_actions /= best_actions.sum(axis=1).reshape(-1, 1)
+        weights = sigmoid(
+            (historic_exp_reward - current_exp_reward) / self.wolf_width
+        ).reshape(-1)
+        loss = (self.loss_func(current_policy_logit, best_actions) * weights).mean()
+        max_pred = current_policy_frozen.max()
+
+        return loss, max_pred
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.weight_decay,
+        )
+
+        # Apply lr scheduler per step
+        lr_scheduler = CosineWarmupScheduler(
+            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": lr_scheduler,
+            "monitor": "val_loss",
+        }
+
+    def training_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="train"
+        )
+        values = {
+            "max_pred": max_pred,
+            "train_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+        return loss
+
+    def validation_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="val"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        values = {
+            "val_max_pred": max_pred,
+            "val_loss": loss,
+        }
+        self.log_dict(values, batch_size=batch.batch_size)
+
+    def test_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
+        (  # pylint: disable=(unbalanced-tuple-unpacking)
+            loss,
+            max_pred,
+        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
+            batch, mode="test"
+        )  # pylint: disable=(unbalanced-tuple-unpacking)
+        testues = {
+            "test_max_pred": max_pred,
+            "test_loss": loss,
+        }
+        self.log_dict(testues, batch_size=batch.batch_size)
+
+    def predict_step(self, data, batch=None):  # pylint: disable=(unused-argument)
         with torch.no_grad():
             data = self.undirected_transformer(data)
             if batch is not None:
@@ -690,3 +827,91 @@ if __name__ == "__main__":
 
     test_batch = Batch.from_data_list([data for data in test_set])
     model.predict_step(test_batch)
+
+    action_value_model = RPSChoiceModel(
+        hidden_dim=5, final_dim=3, num_layers=2, num_heads=1
+    )
+    avg_policy_model = RPSAvgActionModel(
+        hidden_dim=5, final_dim=3, num_layers=2, num_heads=1
+    )
+    dataset_size = 10000
+
+    my_model = [("Rock", 0.5), ("Paper", 0.2), ("Scissors", 0.3)]
+    opponent_model = [("Rock", 0.1), ("Paper", 0.3), ("Scissors", 0.6)]
+
+    dataset = CardDataset(
+        [
+            generate_rps_sample(self_model=my_model, opponent_model=opponent_model)
+            for _ in range(dataset_size)
+        ]
+    )
+
+    train_set = dataset[: math.floor(dataset_size * 0.7)]
+    val_set = dataset[math.floor(dataset_size * 0.7) : math.floor(dataset_size * 0.8)]
+    test_set = dataset[math.floor(dataset_size * 0.8) :]
+
+    train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=128, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=128, shuffle=False)
+
+    model_name = "rps_model"
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+    value_trainer = pl.Trainer(
+        default_root_dir=paths.model_artifact_path / "action_value",
+        callbacks=[
+            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
+            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
+        ],
+        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
+        devices=1,
+        max_epochs=10,
+        enable_progress_bar=False,
+        gradient_clip_val=1,
+        fast_dev_run=False,
+    )
+
+    avg_policy_trainer = pl.Trainer(
+        default_root_dir=paths.model_artifact_path / "avg_policy",
+        callbacks=[
+            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
+            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
+        ],
+        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
+        devices=1,
+        max_epochs=10,
+        enable_progress_bar=False,
+        gradient_clip_val=1,
+        fast_dev_run=False,
+    )
+
+    current_policy_trainer = pl.Trainer(
+        default_root_dir=paths.model_artifact_path / "avg_policy",
+        callbacks=[
+            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
+            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
+        ],
+        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
+        devices=1,
+        max_epochs=100,
+        enable_progress_bar=False,
+        gradient_clip_val=1,
+        fast_dev_run=False,
+    )
+
+    rps_current_action_model = RPSCurrentActionModel(
+        hidden_dim=5,
+        final_dim=3,
+        num_layers=2,
+        num_heads=1,
+        action_value_model=action_value_model,
+        avg_policy_model=avg_policy_model,
+    )
+
+    value_trainer.fit(action_value_model, train_loader, val_loader)
+    avg_policy_trainer.fit(avg_policy_model, train_loader, val_loader)
+
+    current_policy_trainer.fit(rps_current_action_model, train_loader, val_loader)
+
+    data = Batch.from_data_list([data for data in test_set])
+    rps_current_action_model.predict_step(data)
