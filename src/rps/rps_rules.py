@@ -7,6 +7,9 @@ def determine_suit_winner(left_suit, right_suit, order=["left", "right"]):
     if left_suit == right_suit:
         return "draw"
 
+    if "".join(sorted(left_suit + right_suit)) == "BD":
+        return "draw"
+
     if left_suit < right_suit:
         if left_suit == "A" and right_suit == "T":
             return order[0]
@@ -66,3 +69,5 @@ def generate_rps_payoff_lookup():
             }
 
     return pay_off_matrix
+
+print(sorted("DA")) == "AD")
