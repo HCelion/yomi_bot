@@ -69,5 +69,3 @@ def generate_rps_payoff_lookup():
             }
 
     return pay_off_matrix
-
-print(sorted("DA")) == "AD")
