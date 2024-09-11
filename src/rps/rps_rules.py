@@ -1,31 +1,19 @@
 from src.rps.rps_deck import rps_cards
 
 
-def determine_suit_winner(left_suit, right_suit):
+def determine_suit_winner(left_suit, right_suit, order=["left", "right"]):
     # Assumes that it is called with different suites, responsibility lies
     # with the caller
+    if left_suit == right_suit:
+        return "draw"
 
-    if left_suit == "T":
-        # Rock beats Scissors
-        if right_suit == "D":
-            return "left"
-        # Rock loses to paper
-        elif right_suit == "A":
-            return "right"
-    elif left_suit == "A":
-        # Paper covers rock
-        if right_suit == "T":
-            return "left"
-        # Paper gets cut by scissors
-        elif right_suit == "D":
-            return "right"
-    elif left_suit == "D":
-        # Sciccor gets crushed by rock
-        if right_suit == "T":
-            return "right"
-        # Paper cuts scissor
-        elif right_suit == "A":
-            return "left"
+    if left_suit < right_suit:
+        if left_suit == "A" and right_suit == "T":
+            return order[0]
+        return order[1]
+
+    else:
+        return determine_suit_winner(right_suit, left_suit, order[::-1])
 
 
 def determine_score(winner, left_rank, right_rank):
@@ -45,18 +33,13 @@ def determine_score(winner, left_rank, right_rank):
 
 def determine_rps_outcome(left_card, right_card):
 
-    left_speed = left_card.speed
-    right_speed = right_card.speed
+    winner = determine_suit_winner(left_card.type, right_card.type)
 
-    if left_suit != right_suit:
-        winner = determine_suit_winner(left_card.type, right_card.type)
-
-    elif left_speed > right_speed:
-        winner = "left"
-    elif left_speed < right_speed:
-        winner = "right"
-    else:
-        winner = "draw"
+    if winner == "draw":
+        if left_card.speed > right_card.speed:
+            winner = "left"
+        elif left_card.speed < right_card.speed:
+            winner = "right"
 
     left_score, right_score = determine_score(
         winner=winner, left_rank=left_card.damage, right_rank=right_card.damage
@@ -70,7 +53,9 @@ def generate_rps_payoff_lookup():
     pay_off_matrix = {}
     for left_card in rps_cards:
         for right_card in rps_cards:
-            winner, left_score, right_score = determine_rps_outcome(left_card, right_card)
+            winner, left_score, right_score = determine_rps_outcome(
+                left_card, right_card
+            )
             score_diff = left_score - right_score
             pay_off_matrix[(left_card, right_card)] = {
                 "left": score_diff,
