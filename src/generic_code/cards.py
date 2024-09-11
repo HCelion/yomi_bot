@@ -44,8 +44,14 @@ class Card:
             self.block_damage = block_damage
         """
         self.type = card_type
-        self.damage = damage
-        self.speed = speed
+        self.damage = int(damage)
+        self.speed = int(speed)
+
+    def __repr__(self):
+        return f"Card {self.type}-S{self.speed}-D{self.damage}"
+
+    def __str__(self):
+        return f"Card {self.type}-S{self.speed}-D{self.damage}"
 
     def __eq__(self, other):
         if isinstance(other, Card):
