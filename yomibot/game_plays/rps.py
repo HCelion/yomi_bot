@@ -5,11 +5,17 @@ import torch
 import ternary
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
+from pytorch_lightning.callbacks import (
+    ModelCheckpoint,
+    EarlyStopping,
+)
 from yomibot.graph_models.models import (
-    RPSChoiceModel,
     RPSSuccessModel,
     RPSRandomWWeightModel,
     RPSWolfModel,
+    RPSChoiceModel,
+    RPSAvgActionModel,
+    RPSCurrentActionModel,
 )
 from yomibot.graph_models.helpers import get_nash_equilibria
 from yomibot.data.card_data import (
@@ -80,12 +86,9 @@ def generate_rps_dataset_with_loaders(
         opponent_model=opponent_model,
         N=N,
     )
-    train_set = dataset[: math.floor(N * 0.8)]
-    val_set = dataset[math.floor(N * 0.8) :]
 
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle)
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
-    return dataset, train_loader, val_loader
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return dataset, train_loader
 
 
 def gen_trainer(model_name):
@@ -111,7 +114,6 @@ def gen_model():
         hidden_dim=8,
         num_layers=3,
         final_dim=5,
-        num_heads=2,
         dropout=0.0,
         input_bias=True,
         bias=True,
@@ -312,6 +314,51 @@ def train_rps_model(
     return model1, model2, model1_history, model2_history
 
 
+def generate_deep_wolf(lr=0.1, avg_reduction=0.5, delta_win=0.001, delta_lose=0.002):
+    avg_policy_model = RPSAvgActionModel(
+        hidden_dim=5, final_dim=3, num_layers=1, lr=avg_reduction * lr
+    )
+
+    rps_current_action_model = RPSCurrentActionModel(
+        hidden_dim=5,
+        final_dim=3,
+        num_layers=1,
+        lr=lr,
+        avg_policy_model=avg_policy_model,
+        delta_win=delta_win,
+        delta_lose=delta_lose,
+    )
+    return rps_current_action_model
+
+
+def generate_wolf_trainers(model_name, max_epochs=1):
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+    avg_policy_trainer = pl.Trainer(
+        default_root_dir=paths.model_artifact_path / (model_name + "_avg_policy"),
+        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
+        devices=1,
+        max_epochs=max_epochs,
+        enable_progress_bar=False,
+        gradient_clip_val=1,
+        fast_dev_run=False,
+    )
+
+    current_policy_trainer = pl.Trainer(
+        default_root_dir=paths.model_artifact_path / (model_name + "_current_policy"),
+        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
+        devices=1,
+        max_epochs=max_epochs,
+        enable_progress_bar=False,
+        gradient_clip_val=1,
+        fast_dev_run=False,
+    )
+    return {
+        "avg_policy": avg_policy_trainer,
+        "current_policy": current_policy_trainer,
+    }
+
+
 def train_rps_regret_model(
     payout_function1,
     payout_function2,
@@ -369,6 +416,80 @@ def train_rps_regret_model(
     )
 
 
+def train_wolf_model_deep(
+    payout_function1,
+    payout_function2,
+    num_iterations=10,
+    sample_size=1000,
+    lr=0.1,
+    avg_reduction=0.5,
+    value_reduction=0.5,
+    max_epochs=1,
+    delta_win=0.001,
+    delta_lose=0.002,
+):
+    model1 = generate_deep_wolf(lr=lr, delta_win=delta_win, delta_lose=delta_lose)
+    model2 = generate_deep_wolf(lr=lr, delta_win=delta_win, delta_lose=delta_lose)
+
+    model1_history = []
+    model2_history = []
+    model1_avg_history = []
+    model2_avg_history = []
+
+    m1_report, m2_report = gen_report(-1, model1, model2)
+    model1_history.append(m1_report)
+    model2_history.append(m2_report)
+    model1_avg_history.append(
+        {**model1.avg_policy_model.generate_prob_model(as_dict=True), "epoch": -1}
+    )
+    model2_avg_history.append(
+        {**model2.avg_policy_model.generate_prob_model(as_dict=True), "epoch": -1}
+    )
+
+    for epoch in tqdm(range(num_iterations)):
+        model1_set, m1_train = generate_rps_dataset_with_loaders(
+            payout_function=payout_function1,
+            self_model=model1,
+            opponent_model=model2,
+            N=sample_size,
+        )
+
+        model2_set, m2_train = generate_rps_dataset_with_loaders(
+            payout_function=payout_function2,
+            self_model=model2,
+            opponent_model=model1,
+            N=sample_size,
+        )
+
+        m1_trainers = generate_wolf_trainers("wolf_m1", max_epochs=max_epochs)
+        m2_trainers = generate_wolf_trainers("wolf_m2", max_epochs=max_epochs)
+
+        m1_trainers["avg_policy"].fit(model1.avg_policy_model, m1_train)
+        m2_trainers["avg_policy"].fit(model2.avg_policy_model, m2_train)
+
+        m1_trainers["current_policy"].fit(model1, m1_train)
+        m2_trainers["current_policy"].fit(model2, m2_train)
+
+        m1_report, m2_report = gen_report(epoch, model1, model2)
+        model1_avg_history.append(
+            {**model1.generate_prob_model(as_dict=True), "epoch": epoch}
+        )
+        model2_avg_history.append(
+            {**model2.generate_prob_model(as_dict=True), "epoch": epoch}
+        )
+        model1_history.append(m1_report)
+        model2_history.append(m2_report)
+
+    return (
+        model1,
+        model2,
+        model1_history,
+        model2_history,
+        model1_avg_history,
+        model2_avg_history,
+    )
+
+
 if __name__ == "__main__":
     # A = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
     A = np.array([[0, -1 / 2, 1], [1 / 2, 0, -1 / 2], [-1 / 2, 1 / 2, 0]])
@@ -406,3 +527,40 @@ if __name__ == "__main__":
 
     fig = plot_model_history(model1_history, player_1_optimum)
     fig = plot_model_history(model2_history, player_2_optimum)
+
+    ## WoLF implementation
+    A = np.array([[0, -1, 2], [1, 0, -1], [-1, 1, 0]])
+    payout_function1 = rps_non_standard_payout
+    payout_function2 = rps_non_standard_payout_opponent
+    player_1_optimum, player_2_optimum = get_nash_equilibria(A)
+
+    (
+        model1,
+        model2,
+        model1_history,
+        model2_history,
+        model1_avg_history,
+        model2_avg_history,
+    ) = train_wolf_model_deep(
+        payout_function1=payout_function1,
+        payout_function2=payout_function2,
+        num_iterations=200,
+        sample_size=30,
+        lr=0.05,
+        avg_reduction=1,
+        max_epochs=1,
+        delta_win=0.1,
+        delta_lose=1,
+    )
+
+    model1.avg_policy_model.generate_prob_model()
+    model2.avg_policy_model.generate_prob_model()
+
+    fig = plot_model_history(model1_history, player_1_optimum)
+    fig = plot_model_history(model2_history, player_2_optimum)
+
+    fig = plot_model_history_ternary(model1_history, player_1_optimum)
+    fig = plot_model_history_ternary(model2_history, player_2_optimum)
+
+    fig = plot_model_history_with_mse(model1_avg_history, player_1_optimum)
+    fig = plot_model_history_with_mse(model2_avg_history, player_2_optimum)

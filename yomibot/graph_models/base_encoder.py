@@ -12,7 +12,7 @@ class HandConv(torch.nn.Module):
         num_layers,
         hidden_dim,
         num_heads,
-        reduction_method="sum",
+        reduction_method="mean",
         bias=True,
         dropout=False,
         batch_norm=False,
@@ -63,6 +63,39 @@ class HandConv(torch.nn.Module):
     def forward(self, x_dict, edge_index_dict):
         for hetero_conv, nodewise_layer in zip(self.hetero_layers, self.nodewise_layers):
             x_dict = hetero_conv(x_dict, edge_index_dict)
+            for key in x_dict.keys():
+                for layer in nodewise_layer:
+                    x_dict[key] = layer(x_dict[key])
+
+        return x_dict
+
+
+class SimpleHandConv(torch.nn.Module):
+    def __init__(
+        self,
+        num_layers,
+        hidden_dim,
+        bias=True,
+        dropout=False,
+        batch_norm=False,
+        layer_norm=False,
+    ):
+        super(SimpleHandConv, self).__init__()
+        self.nodewise_layers = nn.ModuleList()
+
+        for i in range(num_layers):
+            nodewise_layer = nn.ModuleList()
+            nodewise_layer.append(nn.Linear(hidden_dim, hidden_dim, bias=bias))
+            if batch_norm:
+                nodewise_layer.append(nn.BatchNorm1d(hidden_dim))
+            if layer_norm:
+                nodewise_layer.append(nn.LayerNorm(hidden_dim))
+            if dropout:
+                nodewise_layer.append(nn.Dropout(dropout))
+            self.nodewise_layers.append(nodewise_layer)
+
+    def forward(self, x_dict, edge_index_dict):
+        for nodewise_layer in self.nodewise_layers:
             for key in x_dict.keys():
                 for layer in nodewise_layer:
                     x_dict[key] = layer(x_dict[key])
@@ -149,7 +182,7 @@ class RPSHandChoiceModel(nn.Module):
 
         # Initial encoding
         self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
-        self.hand_endcoder = HandConv(hidden_dim=hidden_dim, **kwargs)
+        self.hand_endcoder = SimpleHandConv(hidden_dim=hidden_dim, **kwargs)
         self.final_encoder = nn.Sequential(
             nn.Linear(hidden_dim, final_dim, bias=input_bias),
             nn.LeakyReLU(final_dim, inplace=True),
@@ -179,7 +212,7 @@ class RPSUtilityModel(nn.Module):
 
         # Initial encoding
         self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
-        self.hand_endcoder = HandConv(hidden_dim=hidden_dim, **kwargs)
+        self.hand_endcoder = SimpleHandConv(hidden_dim=hidden_dim, **kwargs)
         self.final_encoder = nn.Sequential(
             nn.Linear(2 * hidden_dim, 1, bias=input_bias),
             nn.LeakyReLU(1, inplace=True),

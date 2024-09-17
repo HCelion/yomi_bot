@@ -329,6 +329,8 @@ the average value of the long term strategy, when we are doing well, we
 lower the learning rate and stay closer to the true equilibrium
 value.</p>
 <h2 id="wolf-in-deeper-models">WOLF in deeper models</h2>
+<p>For derivations, look <a
+href="https://www.cs.cmu.edu/~mmv/papers/02aij-mike.pdf">here</a></p>
 <p>If we want to roll out the Wolf strategy to a fuller problem, such as
 Yomi, we run into some problems. For once, the state space <span
 class="math inline">\(\mathcal{S}\)</span> can become very large and
@@ -381,5 +383,20 @@ class="math inline">\(A_{max}\)</span> that maximise <span
 class="math inline">\(\mathbf{Q}(s,a)\)</span> and zero otherwise. The
 <span class="math inline">\(\mathbf{\pi}(s)\)</span> should not
 contribute to the gradient though, it is just accentuating the loss.</p>
+<p>An alternative approach for the loss is to get rid of the estimation
+of <span class="math inline">\(Q(s,a)\)</span> altogher and use the
+counterfactual payoffs <span class="math inline">\(\mathbf{r}\)</span>
+as target</p>
+<p><span class="math display">\[L_{\pi(s,a)} =
+\mbox{sigmoid}(\mathbf{r}\cdot \left(\mathbf{\bar{\pi}}(s) -
+\mathbf{\pi}(s)\right)) \, \mathbf{r}\cdot \mathbf{\pi}(s).\]</span></p>
+<p>The sigmoid term can be replaced with any other function that assigns
+higher learnign rate to losing configurations, for example the the step
+function between <span class="math inline">\(\delta_{min}\)</span> and
+<span class="math inline">\(\delta_{max}\)</span> as in the non-gradient
+version.</p>
+<h2 id="lola-approach">LOLA approach</h2>
+<p>For derivations, look <a
+href="https://arxiv.org/pdf/1709.04326">here</a></p>
 </body>
 </html>

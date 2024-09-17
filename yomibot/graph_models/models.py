@@ -70,13 +70,8 @@ class RPSSuccessModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        # Apply lr scheduler per step
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
-        )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
             "monitor": "val_loss",
         }
 
@@ -212,13 +207,8 @@ class RPSAvgActionModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        # Apply lr scheduler per step
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
-        )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
             "monitor": "val_loss",
         }
 
@@ -288,7 +278,7 @@ class RPSAvgActionModel(pl.LightningModule):
 
             return predictions
 
-    def generate_prob_model(self, explore=False):
+    def generate_prob_model(self, explore=False, as_dict=False):
         data = generate_rps_sample()
         choices = data["my_hand"].choices
         predictions = self.predict_step(data)
@@ -296,6 +286,8 @@ class RPSAvgActionModel(pl.LightningModule):
             (category, float(value)) for category, value in zip(choices, predictions[0])
         ]
         outputs = sorted(outputs, key=lambda x: x[0])
+        if as_dict:
+            return {key: value for key, value in outputs}
         return outputs
 
 
@@ -348,13 +340,8 @@ class RPSChoiceModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        # Apply lr scheduler per step
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
-        )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
             "monitor": "val_loss",
         }
 
@@ -419,27 +406,35 @@ class RPSChoiceModel(pl.LightningModule):
                 x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
             )
 
-            # pred_regrets = torch.maximum(pred_regrets, torch.zeros_like(pred_regrets))
-            # for i in range(pred_regrets.size(0)):
-            #     row_sum = pred_regrets[i].sum()
-            #     if row_sum == 0:
-            #         pred_regrets[i] = torch.full_like(pred_regrets[i], 1 / 3)
-            #     else:
-            #         pred_regrets[i] = pred_regrets[i] / row_sum
-
             return pred_regrets
+
+    def generate_value(self, as_dict=False):
+        data = generate_rps_sample()
+        data = self.undirected_transformer(data)
+        choices = data["my_hand"].choices
+        x_dict, edge_index_dict = (
+            data.x_dict,
+            data.edge_index_dict,
+        )
+        predictions = self.model(x_dict, edge_index_dict)
+        outputs = [
+            (category, float(value)) for category, value in zip(choices, predictions[0])
+        ]
+        outputs = sorted(outputs, key=lambda x: x[0])
+        if as_dict:
+            return {key: value for key, value in outputs}
+        return outputs
 
 
 class RPSCurrentActionModel(pl.LightningModule):
     def __init__(
         self,
-        action_value_model,
         avg_policy_model,
         lr=0.1,
         weight_decay=0.01,
-        warmup=2,
         max_iters=2000,
-        wolf_width=0.5,
+        delta_win=0.001,
+        delta_lose=0.002,
         **model_kwargs,
     ):
         super().__init__()
@@ -448,10 +443,9 @@ class RPSCurrentActionModel(pl.LightningModule):
         self.undirected_transformer = ToUndirected()
         self.example_data = generate_rps_sample()
         self.model = RPSHandChoiceModel(**model_kwargs)
-        self.action_value_model = action_value_model
         self.avg_policy_model = avg_policy_model
-        self.loss_func = torch.nn.CrossEntropyLoss(reduction="none")
-        self.wolf_width = wolf_width
+        self.delta_win = delta_win
+        self.delta_lose = delta_lose
 
     def forward(  # pylint: disable=(too-many-locals
         self,
@@ -460,9 +454,6 @@ class RPSCurrentActionModel(pl.LightningModule):
     ):
         data = self.undirected_transformer(data)
         with torch.no_grad():
-            action_values = self.action_value_model.predict_step(
-                data, batch=data.batch_dict
-            )
             avg_policies = self.avg_policy_model.predict_step(data, batch=data.batch_dict)
             current_policy_frozen = self.predict_step(data, batch=data.batch_dict)
 
@@ -476,19 +467,25 @@ class RPSCurrentActionModel(pl.LightningModule):
             x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
         )
 
-        historic_exp_reward = (action_values * avg_policies).sum(axis=1).reshape(-1, 1)
+        counterfactual_payouts = data.payout.reshape(-1, 3)
+
+        historic_exp_reward = (
+            (counterfactual_payouts * avg_policies).sum(axis=1).reshape(-1, 1)
+        )
         current_exp_reward = (
-            (action_values * current_policy_frozen).sum(axis=1).reshape(-1, 1)
+            (counterfactual_payouts * current_policy_frozen).sum(axis=1).reshape(-1, 1)
         )
 
-        max_indices = torch.argmax(action_values, dim=1)
-        best_actions = torch.zeros_like(action_values)
-        best_actions = best_actions.scatter_(1, max_indices.unsqueeze(1), 1)
-        best_actions /= best_actions.sum(axis=1).reshape(-1, 1)
-        weights = sigmoid(
-            (historic_exp_reward - current_exp_reward) / self.wolf_width
-        ).reshape(-1)
-        loss = (self.loss_func(current_policy_logit, best_actions) * weights).mean()
+        weights = torch.where(
+            (historic_exp_reward - current_exp_reward) > 0,
+            self.delta_lose,
+            self.delta_win,
+        )
+
+        loss = (
+            (softmax(current_policy_logit, dim=1) * counterfactual_payouts).sum(axis=1)
+            * weights
+        ).mean()
         max_pred = current_policy_frozen.max()
 
         return loss, max_pred
@@ -500,14 +497,8 @@ class RPSCurrentActionModel(pl.LightningModule):
             weight_decay=self.hparams.weight_decay,
         )
 
-        # Apply lr scheduler per step
-        lr_scheduler = CosineWarmupScheduler(
-            optimizer, warmup=self.hparams.warmup, max_iters=self.hparams.max_iters
-        )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler,
-            "monitor": "val_loss",
         }
 
     def training_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
@@ -523,19 +514,6 @@ class RPSCurrentActionModel(pl.LightningModule):
         }
         self.log_dict(values, batch_size=batch.batch_size)
         return loss
-
-    def validation_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
-        (  # pylint: disable=(unbalanced-tuple-unpacking)
-            loss,
-            max_pred,
-        ) = self.forward(  # pylint: disable=(unbalanced-tuple-unpacking)
-            batch, mode="val"
-        )  # pylint: disable=(unbalanced-tuple-unpacking)
-        values = {
-            "val_max_pred": max_pred,
-            "val_loss": loss,
-        }
-        self.log_dict(values, batch_size=batch.batch_size)
 
     def test_step(self, batch, batch_idx):  # pylint: disable=(unused-argument)
         (  # pylint: disable=(unbalanced-tuple-unpacking)
@@ -574,7 +552,7 @@ class RPSCurrentActionModel(pl.LightningModule):
 
             return predictions
 
-    def generate_prob_model(self, explore=False):
+    def generate_prob_model(self, explore=False, as_dict=False):
         data = generate_rps_sample()
         choices = data["my_hand"].choices
         predictions = self.predict_step(data)
@@ -582,6 +560,8 @@ class RPSCurrentActionModel(pl.LightningModule):
             (category, float(value)) for category, value in zip(choices, predictions[0])
         ]
         outputs = sorted(outputs, key=lambda x: x[0])
+        if as_dict:
+            return {key: value for key, value in outputs}
         return outputs
 
 
@@ -743,32 +723,23 @@ class RPSWolfModel:
 
 
 if __name__ == "__main__":
-    utility_model = RPSSuccessModel(
-        hidden_dim=3, final_dim=2, num_layers=1, num_heads=1, dropout=0
-    )
+    utility_model = RPSSuccessModel(hidden_dim=3, final_dim=2, num_layers=1, dropout=0)
     batch = Batch.from_data_list([generate_rps_sample() for _ in range(10)])
 
     dataset_size = 1000
     dataset = CardDataset([generate_rps_sample() for _ in range(dataset_size)])
 
-    train_set = dataset[: math.floor(dataset_size * 0.7)]
-    val_set = dataset[math.floor(dataset_size * 0.7) : math.floor(dataset_size * 0.8)]
+    train_set = dataset[: math.floor(dataset_size * 0.8)]
     test_set = dataset[math.floor(dataset_size * 0.8) :]
 
     train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
-
-    val_loader = DataLoader(val_set, batch_size=128, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=128, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=128, shuffle=True)
 
     model_name = "rps_model"
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     trainer = pl.Trainer(
         default_root_dir=paths.model_artifact_path / model_name,
-        callbacks=[
-            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
-            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
-        ],
         accelerator="gpu" if str(device).startswith("cuda") else "cpu",
         devices=1,
         max_epochs=10,
@@ -777,17 +748,15 @@ if __name__ == "__main__":
         fast_dev_run=False,
     )
 
-    trainer.fit(utility_model, train_loader, val_loader)
+    trainer.fit(utility_model, train_loader)
 
     test_batch = Batch.from_data_list([data for data in test_set])
     utility_model.predict_step(test_batch, test_batch.batch_dict)
 
     model = RPSChoiceModel(
-        utility_model=utility_model,
         hidden_dim=8,
         num_layers=3,
         final_dim=5,
-        num_heads=2,
         dropout=0.1,
         input_bias=True,
         bias=True,
@@ -798,23 +767,13 @@ if __name__ == "__main__":
     dataset_size = 1000
     dataset = CardDataset([generate_rps_sample() for _ in range(dataset_size)])
 
-    train_set = dataset[: math.floor(dataset_size * 0.7)]
-    val_set = dataset[math.floor(dataset_size * 0.7) : math.floor(dataset_size * 0.8)]
-    test_set = dataset[math.floor(dataset_size * 0.8) :]
-
-    train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=128, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=128, shuffle=False)
+    train_loader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     model_name = "rps_model"
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     trainer = pl.Trainer(
         default_root_dir=paths.model_artifact_path / model_name,
-        callbacks=[
-            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
-            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
-        ],
         accelerator="gpu" if str(device).startswith("cuda") else "cpu",
         devices=1,
         max_epochs=10,
@@ -823,21 +782,26 @@ if __name__ == "__main__":
         fast_dev_run=False,
     )
 
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader)
 
     test_batch = Batch.from_data_list([data for data in test_set])
     model.predict_step(test_batch)
 
-    action_value_model = RPSChoiceModel(
-        hidden_dim=5, final_dim=3, num_layers=2, num_heads=1
+    avg_policy_model = RPSAvgActionModel(hidden_dim=5, final_dim=3, num_layers=2)
+    rps_current_action_model = RPSCurrentActionModel(
+        hidden_dim=5,
+        final_dim=3,
+        num_layers=2,
+        avg_policy_model=avg_policy_model,
+        delta_win=1,
+        delta_lose=1,
+        lr=0.01,
     )
-    avg_policy_model = RPSAvgActionModel(
-        hidden_dim=5, final_dim=3, num_layers=2, num_heads=1
-    )
+
     dataset_size = 10000
 
     my_model = [("Rock", 0.5), ("Paper", 0.2), ("Scissors", 0.3)]
-    opponent_model = [("Rock", 0.1), ("Paper", 0.3), ("Scissors", 0.6)]
+    opponent_model = [("Rock", 0), ("Paper", 0), ("Scissors", 1)]
 
     dataset = CardDataset(
         [
@@ -846,72 +810,47 @@ if __name__ == "__main__":
         ]
     )
 
-    train_set = dataset[: math.floor(dataset_size * 0.7)]
-    val_set = dataset[math.floor(dataset_size * 0.7) : math.floor(dataset_size * 0.8)]
+    train_set = dataset[: math.floor(dataset_size * 0.8)]
     test_set = dataset[math.floor(dataset_size * 0.8) :]
+    from collections import Counter
+
+    Counter([data.opponent_action for data in train_set])
+    counter = Counter([data.self_action for data in train_set])
+    expectations_avg_policy = {
+        key: val / sum(val for val in counter.values()) for key, val in counter.items()
+    }
 
     train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=128, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=128, shuffle=False)
 
     model_name = "rps_model"
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
-    value_trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / "action_value",
-        callbacks=[
-            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
-            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
-        ],
-        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
-        devices=1,
-        max_epochs=10,
-        enable_progress_bar=False,
-        gradient_clip_val=1,
-        fast_dev_run=False,
-    )
-
     avg_policy_trainer = pl.Trainer(
         default_root_dir=paths.model_artifact_path / "avg_policy",
-        callbacks=[
-            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
-            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
-        ],
         accelerator="gpu" if str(device).startswith("cuda") else "cpu",
         devices=1,
-        max_epochs=10,
+        max_epochs=1,
         enable_progress_bar=False,
         gradient_clip_val=1,
         fast_dev_run=False,
     )
 
     current_policy_trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / "avg_policy",
-        callbacks=[
-            ModelCheckpoint(save_weights_only=False, mode="min", monitor="val_loss"),
-            EarlyStopping(monitor="val_loss", patience=10, verbose=False, mode="min"),
-        ],
+        default_root_dir=paths.model_artifact_path / "current_policy",
         accelerator="gpu" if str(device).startswith("cuda") else "cpu",
         devices=1,
-        max_epochs=100,
+        max_epochs=1,
         enable_progress_bar=False,
         gradient_clip_val=1,
         fast_dev_run=False,
     )
 
-    rps_current_action_model = RPSCurrentActionModel(
-        hidden_dim=5,
-        final_dim=3,
-        num_layers=2,
-        num_heads=1,
-        action_value_model=action_value_model,
-        avg_policy_model=avg_policy_model,
-    )
-
-    value_trainer.fit(action_value_model, train_loader, val_loader)
-    avg_policy_trainer.fit(avg_policy_model, train_loader, val_loader)
-
-    current_policy_trainer.fit(rps_current_action_model, train_loader, val_loader)
+    avg_policy_trainer.fit(avg_policy_model, train_loader)
+    current_policy_trainer.fit(rps_current_action_model, train_loader)
 
     data = Batch.from_data_list([data for data in test_set])
+    rps_current_action_model.avg_policy_model.predict_step(data)
+
+    rps_current_action_model.avg_policy_model.generate_prob_model()
     rps_current_action_model.predict_step(data)

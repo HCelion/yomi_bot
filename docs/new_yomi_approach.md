@@ -111,6 +111,8 @@ Also we have to clip and normalise to guarantee a correct probability distributi
 
 ## WOLF in deeper models
 
+For derivations, look [here](https://www.cs.cmu.edu/~mmv/papers/02aij-mike.pdf)
+
 If we want to roll out the Wolf strategy to a fuller problem, such as Yomi, we run into some problems. For once, the state space $\mathcal{S}$ can become very large and there is some structure in it, so it would be reasonable to expect that nearby states to $s$, for example with similar but not exactly the same cards and enemies, we can improve on learning.
 Our goal is to fomulate the problem such that our state space dependence is handled by a deep model. All counts and states that are indexed by $s$ will now be handled by a model. These are $Q(s,a), \bar{\pi}(s,a)$ and $\pi(s,a).$
 We now need to find loss functions for these such that we can train a model on it. As before we assume we know the rewards, which are trained functions $V$ of the value of the transition $s \rightarrow s'$.
@@ -133,3 +135,13 @@ $$L_{\pi(s,a)} = \mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) -
 
 
 where $\mathbf{Q_{\mbox{max}}} = 1/|A_{max}|$ for all actions $A_{max}$ that maximise $\mathbf{Q}(s,a)$ and zero otherwise. The $\mathbf{\pi}(s)$ should not contribute to the gradient though, it is just accentuating the loss.
+
+An alternative approach for the loss is to get rid of the estimation of $Q(s,a)$ altogher  and use the counterfactual payoffs $\mathbf{r}$ as target
+
+$$L_{\pi(s,a)} = \mbox{sigmoid}(\mathbf{r}\cdot \left(\mathbf{\bar{\pi}}(s) - \mathbf{\pi}(s)\right)) \, \mathbf{r}\cdot \mathbf{\pi}(s).$$
+
+The sigmoid term can be replaced with any other function that assigns higher learnign rate to losing configurations, for example the the step function between $\delta_{min}$ and $\delta_{max}$ as in the non-gradient version.
+
+## LOLA approach
+
+For derivations, look [here](https://arxiv.org/pdf/1709.04326)
