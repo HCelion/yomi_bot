@@ -3,5 +3,5 @@ services:
     image: yomibot:latest
     #restart: always
     volumes:
-      - ./:/
-    command: python3 /scripts/rps_random_v_best.py
+      - ./scripts:/workdir
+    command: python3 /workdir/rps_random_v_best.py

@@ -6,7 +6,7 @@ RUN apk --update add \
     py-pip\
     g++
 
-ADD . /opt/
+ADD ./requirements.txt /requirements.txt
 
 RUN python3 -m pip install --break-system-packages --upgrade wheel
-RUN python3 -m pip install --break-system-packages --upgrade /opt/.
+RUN python3 -m pip install --break-system-packages --upgrade -r /requirements.txt
