@@ -145,3 +145,32 @@ The sigmoid term can be replaced with any other function that assigns higher lea
 ## LOLA approach
 
 For derivations, look [here](https://arxiv.org/pdf/1709.04326)
+
+## Baselined policy learning
+
+One way to train a policy model $\pi_theta(a|s)_\theta$ is to use the actor-critic approach.
+We train a separate value model $V_{\phi}(s)$ separately to improve on the loss.
+
+We let $M$ episodes run until each finished at time $T$. For each data point we can introduce the time horizon $n$, the discount factor $\gamma$.
+The for each episode in $M$ we simulate the trace
+$$\tau = \{s_0, a_0, r_0, s_1, \dots, s_T\}.$$
+For each state alongside the trace we approximate the bootstrapped value
+
+$$\hat{Q}_n(s_t, a_t) = \sum_{k=0}^{n-1}\gamma^k\cdot r_{t+k} + \gamma^n V_{\phi}(s_{t+n})$$
+
+and the bootstrapped advantage
+
+$$\hat{A}_n(s_t, a_t) = \hat{Q}_n(s_t, a_t) - V(s_t)$$
+
+
+We can then update the networks with the gradients
+
+$$ \begin{split}
+\phi \rightarrow \phi - \alpha \nabla_{\phi} \sum_t (\hat{Q}_n(s_t, a_t) - V(s_t))^2 \\
+\theta_t \rightarrow \theta - \alpha \nabla_{\theta}  \sum_t \left[\hat{A}_n(s_t, a_t)\log \phi_\theta(a_t|s_t)\right]
+\end{split}
+$$
+
+Of course, for rock paper scissors it makes sense to discount completely $\gamma=1$ such that
+
+$$\hat{Q}_n(s_t, a_t) = \hat{Q}(s_t, a_t) = r_t$$

@@ -398,5 +398,38 @@ version.</p>
 <h2 id="lola-approach">LOLA approach</h2>
 <p>For derivations, look <a
 href="https://arxiv.org/pdf/1709.04326">here</a></p>
+<h2 id="baselined-policy-learning">Baselined policy learning</h2>
+<p>One way to train a policy model <span
+class="math inline">\(\pi_theta(a|s)_\theta\)</span> is to use the
+actor-critic approach. We train a separate value model <span
+class="math inline">\(V_{\phi}(s)\)</span> separately to improve on the
+loss.</p>
+<p>We let <span class="math inline">\(M\)</span> episodes run until each
+finished at time <span class="math inline">\(T\)</span>. For each data
+point we can introduce the time horizon <span
+class="math inline">\(n\)</span>, the discount factor <span
+class="math inline">\(\gamma\)</span>. The for each episode in <span
+class="math inline">\(M\)</span> we simulate the trace <span
+class="math display">\[\tau = \{s_0, a_0, r_0, s_1, \dots,
+s_T\}.\]</span> For each state alongside the trace we approximate the
+bootstrapped value</p>
+<p><span class="math display">\[\hat{Q}_n(s_t, a_t) =
+\sum_{k=0}^{n-1}\gamma^k\cdot r_{t+k} + \gamma^n
+V_{\phi}(s_{t+n})\]</span></p>
+<p>and the bootstrapped advantage</p>
+<p><span class="math display">\[\hat{A}_n(s_t, a_t) = \hat{Q}_n(s_t,
+a_t) - V(s_t)\]</span></p>
+<p>We can then update the networks with the gradients</p>
+<p><span class="math display">\[ \begin{split}
+\phi \rightarrow \phi - \alpha \nabla_{\phi} \sum_t (\hat{Q}_n(s_t, a_t)
+- V(s_t))^2 \\
+\theta_t \rightarrow \theta - \alpha \nabla_{\theta}  \sum_t
+\left[\hat{A}_n(s_t, a_t)\log \phi_\theta(a_t|s_t)\right]
+\end{split}
+\]</span></p>
+<p>Of course, for rock paper scissors it makes sense to discount
+completely <span class="math inline">\(\gamma=1\)</span> such that</p>
+<p><span class="math display">\[\hat{Q}_n(s_t, a_t) = \hat{Q}(s_t, a_t)
+= r_t\]</span></p>
 </body>
 </html>
