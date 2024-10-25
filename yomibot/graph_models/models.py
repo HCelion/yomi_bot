@@ -14,11 +14,17 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
 )
-from yomibot.graph_models.base_encoder import RPSHandChoiceModel, RPSUtilityModel
+from yomibot.graph_models.base_encoder import RPSHandChoiceModel, RPSUtilityModel,RPSPolicyActorModel
 from yomibot.graph_models.helpers import CosineWarmupScheduler
 from yomibot.data.card_data import generate_rps_sample, CardDataset
 from yomibot.common import paths
-
+from yomibot.data.card_data import (
+    generate_rps_sample,
+    CardDataset,
+    rps_non_standard_payout,
+    rps_standard_payout,
+    rps_non_standard_payout_opponent,
+)
 
 def clip_value(value):
     return max(0, min(value, 1))
@@ -722,135 +728,130 @@ class RPSWolfModel:
         return prob_model
 
 
-if __name__ == "__main__":
-    utility_model = RPSSuccessModel(hidden_dim=3, final_dim=2, num_layers=1, dropout=0)
-    batch = Batch.from_data_list([generate_rps_sample() for _ in range(10)])
+class ActorCritic(pl.LightningModule):
+    def __init__(self, hidden_dim=4, num_layers=1, lr=0.01, M=100, payout_function=rps_standard_payout, weight_decay=0.00001):
+        super(ActorCritic, self).__init__()
+        self.actor_net = RPSPolicyActorModel(hidden_dim=hidden_dim, num_layers=num_layers)
+        self.value_net = RPSPolicyActorModel(hidden_dim=hidden_dim, num_layers=num_layers)
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.M = M
+        self.undirected_transformer = ToUndirected()
+        self.payout_function=payout_function
+        self.automatic_optimization = False
 
-    dataset_size = 1000
-    dataset = CardDataset([generate_rps_sample() for _ in range(dataset_size)])
+    def forward(self, batch):
+        if isinstance(batch, Batch):
+            x_dict,edge_index_dict, batch_dict= batch.x_dict, batch.edge_index_dict, batch.batch_dict
+        else:
+            x_dict,edge_index_dict, batch_dict= batch.x_dict, batch.edge_index_dict, None
+        policy, _ = self.actor_net(x_dict=x_dict,edge_index_dict=edge_index_dict, batch_dict=batch_dict )
+        return policy
 
-    train_set = dataset[: math.floor(dataset_size * 0.8)]
-    test_set = dataset[math.floor(dataset_size * 0.8) :]
+    def predict_step(self, data, batch=None):
+        with torch.no_grad():
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    None,
+                )
+            preds, _ = self.actor_net(
+                x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+            )
 
-    train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=128, shuffle=True)
+        return preds
 
-    model_name = "rps_model"
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    def valuation(self, batch):
+        if isinstance(batch, Batch):
+            x_dict,edge_index_dict, batch_dict= batch.x_dict, batch.edge_index_dict, batch.batch_dict
+        else:
+            x_dict,edge_index_dict, batch_dict= batch.x_dict, batch.edge_index_dict, None
+        _, values = self.value_net(x_dict=x_dict,edge_index_dict=edge_index_dict, batch_dict=batch_dict )
+        return values
 
-    trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / model_name,
-        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
-        devices=1,
-        max_epochs=10,
-        enable_progress_bar=False,
-        gradient_clip_val=1,
-        fast_dev_run=False,
-    )
+    def configure_optimizers(self):
+        actor_optimizer = optim.Adam(self.actor_net.parameters(), lr=self.lr,weight_decay=self.weight_decay)
+        critic_optimizer = optim.Adam(self.value_net.parameters(), lr=self.lr,weight_decay=self.weight_decay)
+        return [actor_optimizer, critic_optimizer]
 
-    trainer.fit(utility_model, train_loader)
-
-    test_batch = Batch.from_data_list([data for data in test_set])
-    utility_model.predict_step(test_batch, test_batch.batch_dict)
-
-    model = RPSChoiceModel(
-        hidden_dim=8,
-        num_layers=3,
-        final_dim=5,
-        dropout=0.1,
-        input_bias=True,
-        bias=True,
-        lr=0.1,
-        weight_decay=0.01,
-    )
-
-    dataset_size = 1000
-    dataset = CardDataset([generate_rps_sample() for _ in range(dataset_size)])
-
-    train_loader = DataLoader(dataset, batch_size=128, shuffle=True)
-
-    model_name = "rps_model"
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-
-    trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / model_name,
-        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
-        devices=1,
-        max_epochs=10,
-        enable_progress_bar=False,
-        gradient_clip_val=1,
-        fast_dev_run=False,
-    )
-
-    trainer.fit(model, train_loader)
-
-    test_batch = Batch.from_data_list([data for data in test_set])
-    model.predict_step(test_batch)
-
-    avg_policy_model = RPSAvgActionModel(hidden_dim=5, final_dim=3, num_layers=2)
-    rps_current_action_model = RPSCurrentActionModel(
-        hidden_dim=5,
-        final_dim=3,
-        num_layers=2,
-        avg_policy_model=avg_policy_model,
-        delta_win=1,
-        delta_lose=1,
-        lr=0.01,
-    )
-
-    dataset_size = 10000
-
-    my_model = [("Rock", 0.5), ("Paper", 0.2), ("Scissors", 0.3)]
-    opponent_model = [("Rock", 0), ("Paper", 0), ("Scissors", 1)]
-
-    dataset = CardDataset(
-        [
-            generate_rps_sample(self_model=my_model, opponent_model=opponent_model)
-            for _ in range(dataset_size)
+    def generate_prob_model(self,  as_dict=False):
+        data = generate_rps_sample()
+        choices = data["my_hand"].choices
+        predictions = self.predict_step(data)
+        outputs = [
+            (category, float(value)) for category, value in zip(choices, predictions[0])
         ]
-    )
+        outputs = sorted(outputs, key=lambda x: x[0])
+        if as_dict:
+            return {key: value for key, value in outputs}
+        return outputs
 
-    train_set = dataset[: math.floor(dataset_size * 0.8)]
-    test_set = dataset[math.floor(dataset_size * 0.8) :]
-    from collections import Counter
+    def collect_trajectory(self, self.model=None, opponent_model=None):
+        states, actions, rewards, log_probs = [], [], [], []
+        self_model = self.generate_prob_model(as_dict=False)
+        for _ in range(self.M):
+            state = generate_rps_sample(payout_function=self.payout_function,self_model= self_model, opponent_model=opponent_model)
+            action = state.self_action
+            action_index = state['my_hand']['choices'].index(state.self_action)
+            probs = self.forward(state)
+            action_prob = probs[0,action_index]
+            log_prob = torch.log(action_prob)
+            states.append(state)
+            actions.append(action)
+            rewards.append(state.my_utility)
+            log_probs.append(log_prob)
 
-    Counter([data.opponent_action for data in train_set])
-    counter = Counter([data.self_action for data in train_set])
-    expectations_avg_policy = {
-        key: val / sum(val for val in counter.values()) for key, val in counter.items()
-    }
+        return states, actions, rewards, log_probs
 
-    train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=128, shuffle=False)
+    def compute_returns(self, rewards):
+        returns = torch.FloatTensor(rewards)
+        return returns
 
-    model_name = "rps_model"
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    def training_step(self, batch, batch_idx):
+        states, actions, rewards, log_probs = self.collect_trajectory()
+        returns = self.compute_returns(rewards)
+        values = self.valuation(Batch.from_data_list(states)).squeeze()
+        advantages = (returns - values)
+        actor_optimizer, critic_optimizer= self.optimizers()
 
-    avg_policy_trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / "avg_policy",
-        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
-        devices=1,
-        max_epochs=1,
-        enable_progress_bar=False,
-        gradient_clip_val=1,
-        fast_dev_run=False,
-    )
 
-    current_policy_trainer = pl.Trainer(
-        default_root_dir=paths.model_artifact_path / "current_policy",
-        accelerator="gpu" if str(device).startswith("cuda") else "cpu",
-        devices=1,
-        max_epochs=1,
-        enable_progress_bar=False,
-        gradient_clip_val=1,
-        fast_dev_run=False,
-    )
+        # Critic update
+        critic_optimizer.zero_grad()
+        critic_loss = advantages.pow(2).sum()
+        self.manual_backward(critic_loss)
+        critic_optimizer.step()
 
-    avg_policy_trainer.fit(avg_policy_model, train_loader)
-    current_policy_trainer.fit(rps_current_action_model, train_loader)
+        # Actor update
+        actor_optimizer.zero_grad()
+        actor_loss = sum([ -logp*adv for logp,adv in  zip(log_probs, advantages.detach())])
+        self.manual_backward(actor_loss)
+        actor_optimizer.step()
 
-    data = Batch.from_data_list([data for data in test_set])
-    rps_current_action_model.avg_policy_model.predict_step(data)
 
-    rps_current_action_model.avg_policy_model.generate_prob_model()
-    rps_current_action_model.predict_step(data)
+
+from yomibot.graph_models.helpers import get_nash_equilibria
+
+actor_critic = ActorCritic(M=1000, payout_function = rps_non_standard_payout, weight_decay=0.0001, lr=0.01)
+
+self = actor_critic
+batch = Batch.from_data_list([generate_rps_sample() for _ in range (5)])
+actor_critic.generate_prob_model()
+actor_critic.valuation(batch)
+
+trainer = pl.Trainer(max_epochs=30, log_every_n_steps=10)
+trainer.fit(actor_critic,  [12])
+
+A = np.array([[0, -1 / 2, 1], [1 / 2, 0, -1 / 2], [-1 / 2, 1 / 2, 0]])
+payout_function1 = rps_non_standard_payout
+payout_function2 = rps_non_standard_payout_opponent
+player_1_optimum, player_2_optimum, p1_value = get_nash_equilibria(A, return_value=True)
+#
+# advantages

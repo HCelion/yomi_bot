@@ -19,7 +19,7 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):  # pylint: disable
         return lr_factor
 
 
-def get_nash_equilibria(A):
+def get_nash_equilibria(A, return_value=False):
     import nashpy as nash
 
     rps = nash.Game(A, -A)
@@ -29,4 +29,7 @@ def get_nash_equilibria(A):
     optimum_1 = {action: prob for action, prob in zip(order, player_1)}
     optimum_2 = {action: prob for action, prob in zip(order, player_2)}
 
+    if return_value:
+        p1_value = np.array(player_1).T @ A @ np.array(player_2)
+        return optimum_1, optimum_2, p1_value
     return optimum_1, optimum_2
