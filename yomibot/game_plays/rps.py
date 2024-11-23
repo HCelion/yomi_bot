@@ -25,6 +25,13 @@ from yomibot.data.card_data import (
     rps_standard_payout,
     rps_non_standard_payout_opponent,
 )
+from yomibot.graph_models.helpers import (
+    CosineWarmupScheduler,
+    MetricsCallback,
+    plot_model_history,
+    plot_model_history_with_mse,
+    plot_model_history_ternary,
+)
 from yomibot.common import paths
 import pandas as pd
 from tqdm import tqdm
@@ -138,136 +145,6 @@ def gen_report(epoch, model1, model2):
     m2_report = {key: val for key, val in model2.generate_prob_model(explore=False)}
     m2_report["epoch"] = epoch
     return m1_report, m2_report
-
-
-def plot_model_history(model_history, equilibrium_point):
-    history_df = pd.DataFrame(model_history)
-    fig = plt.figure(figsize=(10, 6))
-
-    # Define colors for Rock, Paper, and Scissors
-    colors = {"Rock": "red", "Paper": "blue", "Scissors": "green"}
-
-    # Plot the history lines with the defined colors
-    plt.plot(history_df.index, history_df["Rock"], label="Rock", color=colors["Rock"])
-    plt.plot(history_df.index, history_df["Paper"], label="Paper", color=colors["Paper"])
-    plt.plot(
-        history_df.index,
-        history_df["Scissors"],
-        label="Scissors",
-        color=colors["Scissors"],
-    )
-    plt.ylim(0, 1)
-
-    # Plot the equilibrium points with the same colors
-    plt.axhline(
-        y=equilibrium_point["Rock"],
-        color=colors["Rock"],
-        linestyle=":",
-        label="Equilibrium Rock",
-    )
-    plt.axhline(
-        y=equilibrium_point["Paper"],
-        color=colors["Paper"],
-        linestyle=":",
-        label="Equilibrium Paper",
-    )
-    plt.axhline(
-        y=equilibrium_point["Scissors"],
-        color=colors["Scissors"],
-        linestyle=":",
-        label="Equilibrium Scissors",
-    )
-
-    plt.xlabel("Epoch")
-    plt.ylabel("Probability")
-    plt.title("Train History")
-    plt.legend()
-
-    # Return the figure
-    return fig
-
-
-def plot_model_history_with_mse(model_history, equilibrium_point):
-    mse_rock = []
-    mse_paper = []
-    mse_scissors = []
-
-    for record in model_history:
-        mse_rock.append((record["Rock"] - equilibrium_point["Rock"]) ** 2)
-        mse_paper.append((record["Paper"] - equilibrium_point["Paper"]) ** 2)
-        mse_scissors.append((record["Scissors"] - equilibrium_point["Scissors"]) ** 2)
-
-    overall_mse = [r + p + s for r, p, s in zip(mse_rock, mse_paper, mse_scissors)]
-    epochs = [record["epoch"] for record in model_history]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Plot the MSE values
-    ax.plot(epochs, mse_rock, label="MSE Rock", color="red", linestyle="--")
-    ax.plot(epochs, mse_paper, label="MSE Paper", color="blue", linestyle="--")
-    ax.plot(epochs, mse_scissors, label="MSE Scissors", color="green", linestyle="--")
-    ax.plot(epochs, overall_mse, label="Overall MSE", color="purple", linestyle="-")
-
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Mean Squared Error")
-    ax.set_title("Mean Squared Error Over Time")
-    ax.legend(loc="upper right")
-
-    plt.show()
-
-
-def plot_model_history_ternary(model_history, equilibrium_point):
-    # Convert the equilibrium point dictionary to a list of lists
-    equilibrium_points = [
-        [
-            equilibrium_point["Rock"],
-            equilibrium_point["Paper"],
-            equilibrium_point["Scissors"],
-        ]
-    ]
-
-    history_df = pd.DataFrame(model_history)
-
-    # Extract probabilities for Rock, Paper, and Scissors
-    points = history_df[["Rock", "Paper", "Scissors"]].values.tolist()
-
-    # Initialize the ternary plot
-    scale = 1.0
-    fig, ax = plt.subplots(figsize=(10, 8))
-    tax = ternary.TernaryAxesSubplot(ax=ax, scale=scale)
-    tax.boundary(linewidth=1.0)  # Thinner boundary lines
-    tax.gridlines(color="blue", multiple=0.1, linewidth=0.5)  # Thinner grid lines
-
-    # Plot the points with lower opacity and thinner lines
-    tax.scatter(
-        points, marker="o", color="red", label="Strategy", s=10, alpha=0.5
-    )  # s=10 for smaller markers, alpha=0.5 for lower opacity
-    tax.plot(
-        points, color="red", linewidth=0.5, alpha=0.5
-    )  # Thinner lines and lower opacity
-
-    # Mark the starting point with a different marker and color
-    if points:
-        tax.scatter(
-            [points[0]], marker="s", color="blue", label="Start", s=50
-        )  # s=50 for larger marker
-
-    # Plot the equilibrium points last to ensure they are on top
-    tax.scatter(
-        equilibrium_points, marker="x", color="green", label="Equilibrium", s=50
-    )  # s=50 for larger markers
-
-    # Set axis labels at the corners
-    tax.left_corner_label("Rock", offset=0.16)
-    tax.right_corner_label("Paper", offset=0.16)
-    tax.top_corner_label("Scissors", offset=0.16, verticalalignment="bottom")
-    tax.set_title("Strategy Space History")
-
-    # Add legend
-    tax.legend()
-
-    # Return the figure
-    return fig
 
 
 def train_rps_model(
@@ -507,7 +384,7 @@ if __name__ == "__main__":
     ) = train_rps_regret_model(
         payout_function1=payout_function1,
         payout_function2=payout_function2,
-        num_iterations=20000,
+        num_iterations=50000,
         sample_size=1,
         alpha=0.1,
         delta_win=0.001,

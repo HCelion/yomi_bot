@@ -314,7 +314,11 @@ def get_payout_tensor(my_hand, opponent_action, payout_function):
 
 
 def generate_rps_sample(
-    payout_function=rps_standard_payout, self_model=None, opponent_model=None
+    payout_function=rps_standard_payout,
+    self_model=None,
+    opponent_model=None,
+    mirror=False,
+    opp_payout_function=rps_standard_payout,
 ):
     rps_encoder = RPSEmbedding.load()
     my_hand = ["Rock", "Paper", "Scissors"]
@@ -326,6 +330,11 @@ def generate_rps_sample(
     rps_data["my_hand"].x = rps_encoder.encode(my_hand)
     rps_data["opponent_hand"].x = rps_encoder.encode(opponent_hand)
 
+    if mirror:
+        other_data = HeteroData()
+        other_data["my_hand"].x = rps_encoder.encode(opponent_hand)
+        other_data["opponent_hand"].x = rps_encoder.encode(my_hand)
+
     rps_data["my_hand", "beats", "opponent_hand"].edge_index = create_card_index_int(
         my_hand, opponent_hand, payout_function, 1
     )
@@ -334,6 +343,20 @@ def generate_rps_sample(
     )
     rps_data["my_hand"].choices = my_hand
     rps_data["opponent_hand"].choices = opponent_hand
+
+    if mirror:
+        other_data[
+            "my_hand", "beats", "opponent_hand"
+        ].edge_index = create_card_index_int(
+            opponent_hand, my_hand, opp_payout_function, 1
+        )
+        other_data[
+            "my_hand", "loses_to", "opponent_hand"
+        ].edge_index = create_card_index_int(
+            opponent_hand, my_hand, opp_payout_function, -1
+        )
+        other_data["my_hand"].choices = opponent_hand
+        other_data["opponent_hand"].choices = my_hand
 
     if opponent_model is None:
         opponent_action = choice(opponent_hand)
@@ -350,14 +373,26 @@ def generate_rps_sample(
         self_action = choices(options, probabilities)[0]
 
     rps_data.self_action = self_action
+    action_index = rps_data["my_hand"]["choices"].index(self_action)
+    action_index_tensor = torch.zeros((1, 3))
+    action_index_tensor[0, action_index] = 1
+    rps_data.action_index = action_index_tensor
     rps_data.opponent_action = opponent_action
     rps_data.my_utility = payout_function(self_action, opponent_action)
-    #
-    # payout = get_payout_tensor(my_hand, opponent_action, payout_function)
-    # regret = payout - actual_payout
-    #
     rps_data.payout = get_payout_tensor(my_hand, opponent_action, payout_function)
-    # rps_data.regret = regret
+
+    if mirror:
+        other_data.self_action = opponent_action
+        action_index = other_data["my_hand"]["choices"].index(opponent_action)
+        action_index_tensor = torch.zeros((1, 3))
+        action_index_tensor[0, action_index] = 1
+        other_data.action_index = action_index_tensor
+        other_data.opponent_action = self_action
+        other_data.my_utility = opp_payout_function(opponent_action, self_action)
+        other_data.payout = get_payout_tensor(
+            opponent_hand, self_action, opp_payout_function
+        )
+        return rps_data, other_data
 
     return rps_data
 

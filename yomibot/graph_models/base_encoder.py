@@ -257,6 +257,11 @@ class RPSPolicyActorModel(nn.Module):
             nn.Linear(hidden_dim, 1, bias=input_bias),
         )
 
+        self.q_value_head = nn.Sequential(
+            nn.Linear(hidden_dim, 1, bias=input_bias),
+            nn.LeakyReLU(3, inplace=True),
+        )
+
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x_dict, edge_index_dict, batch_dict=None):
@@ -279,5 +284,5 @@ class RPSPolicyActorModel(nn.Module):
             my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"], batch=None)
 
         value = self.value_head(my_hand_encoding)
-
-        return policy, value
+        q_values = self.q_value_head(x_dict["my_hand"])
+        return policy, value, q_values
