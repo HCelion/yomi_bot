@@ -94,6 +94,12 @@ class RPSEmbedding(CustomEmbedding):
     embedding_dim = 3
 
 
+class PennyEmbedding(CustomEmbedding):
+    allowed_values = ["Odd", "Even"]
+    storage_path = embeddings_path / "penny_embedding.pth"
+    embedding_dim = 2
+
+
 class YomiPlayerEmbedding(CustomEmbedding):
     allowed_values = [
         "Grave",
@@ -278,6 +284,22 @@ def rps_standard_payout(card_1, card_2):
         return 0
 
 
+def penny_standard_payout(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_combo in [("Odd", "Odd"), ("Even", "Even")]:
+        return +1
+    else:
+        return -1
+
+
+def penny_opponent_standard_payout(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_combo in [("Odd", "Even"), ("Even", "Odd")]:
+        return +1
+    else:
+        return -1
+
+
 def rps_non_standard_payout(card_1, card_2):
     card_combo = (card_1, card_2)
     if card_combo in [("Rock", "Scissors")]:
@@ -395,6 +417,93 @@ def generate_rps_sample(
         return rps_data, other_data
 
     return rps_data
+
+
+def generate_penny_sample(
+    payout_function=penny_standard_payout,
+    self_model=None,
+    opponent_model=None,
+    mirror=False,
+    opp_payout_function=penny_opponent_standard_payout,
+):
+    penny_encoder = PennyEmbedding.load()
+    my_hand = ["Odd", "Even"]
+    shuffle(my_hand)
+    opponent_hand = ["Odd", "Even"]
+    shuffle(opponent_hand)
+
+    penny_data = HeteroData()
+    penny_data["my_hand"].x = penny_encoder.encode(my_hand)
+    penny_data["opponent_hand"].x = penny_encoder.encode(opponent_hand)
+
+    if mirror:
+        other_data = HeteroData()
+        other_data["my_hand"].x = penny_encoder.encode(opponent_hand)
+        other_data["opponent_hand"].x = penny_encoder.encode(my_hand)
+
+    penny_data["my_hand", "beats", "opponent_hand"].edge_index = create_card_index_int(
+        my_hand, opponent_hand, payout_function, 1
+    )
+    penny_data["my_hand", "loses_to", "opponent_hand"].edge_index = create_card_index_int(
+        my_hand, opponent_hand, payout_function, -1
+    )
+
+    penny_data["my_hand"].choices = my_hand
+    penny_data["opponent_hand"].choices = opponent_hand
+
+    if mirror:
+        other_data["my_hand"].choices = opponent_hand
+        other_data["opponent_hand"].choices = my_hand
+
+    if mirror:
+        other_data[
+            "my_hand", "beats", "opponent_hand"
+        ].edge_index = create_card_index_int(
+            opponent_hand, my_hand, opp_payout_function, 1
+        )
+        other_data[
+            "my_hand", "loses_to", "opponent_hand"
+        ].edge_index = create_card_index_int(
+            opponent_hand, my_hand, opp_payout_function, -1
+        )
+
+    if opponent_model is None:
+        opponent_action = choice(opponent_hand)
+    else:
+        options = [val[0] for val in opponent_model]
+        probabilities = [val[1] for val in opponent_model]
+        opponent_action = choices(options, probabilities)[0]
+
+    if self_model is None:
+        self_action = choice(my_hand)
+    else:
+        options = [val[0] for val in self_model]
+        probabilities = [val[1] for val in self_model]
+        self_action = choices(options, probabilities)[0]
+
+    penny_data.self_action = self_action
+    action_index = penny_data["my_hand"]["choices"].index(self_action)
+    action_index_tensor = torch.zeros((1, 2))
+    action_index_tensor[0, action_index] = 1
+    penny_data.action_index = action_index_tensor
+    penny_data.opponent_action = opponent_action
+    penny_data.my_utility = payout_function(self_action, opponent_action)
+    penny_data.payout = get_payout_tensor(my_hand, opponent_action, payout_function)
+
+    if mirror:
+        other_data.self_action = opponent_action
+        action_index = other_data["my_hand"]["choices"].index(opponent_action)
+        action_index_tensor = torch.zeros((1, 2))
+        action_index_tensor[0, action_index] = 1
+        other_data.action_index = action_index_tensor
+        other_data.opponent_action = self_action
+        other_data.my_utility = opp_payout_function(opponent_action, self_action)
+        other_data.payout = get_payout_tensor(
+            opponent_hand, self_action, opp_payout_function
+        )
+        return penny_data, other_data
+
+    return penny_data
 
 
 class CardDataset(Dataset):

@@ -256,3 +256,112 @@ def empirical_frequencies(list_items):
     return {
         action: val / len(list_items) for action, val in dict(Counter(list_items)).items()
     }
+
+
+def plot_penny(df, add_freq_trace=True, add_emp_update_trace=True, add_update_trace=True):
+    required_columns = ["alpha", "beta"]
+    optional_columns = {
+        "freq_trace": ["freq_alpha", "freq_beta"],
+        "emp_update_trace": ["alpha_emp_update", "beta_emp_update"],
+        "update_trace": ["update_alpha", "update_beta"],
+    }
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    ax.plot(
+        df["alpha"],
+        df["beta"],
+        marker="o",
+        linestyle="-",
+        color="b",
+        label="After update",
+        alpha=0.7,
+    )
+
+    if add_freq_trace and all(
+        col in df.columns for col in optional_columns["freq_trace"]
+    ):
+        ax.plot(
+            df["freq_alpha"],
+            df["freq_beta"],
+            marker="o",
+            linestyle="--",
+            color="g",
+            label="Mean models",
+            alpha=0.7,
+        )
+
+    if add_emp_update_trace and all(
+        col in df.columns for col in optional_columns["emp_update_trace"]
+    ):
+        ax.plot(
+            df["alpha_emp_update"],
+            df["beta_emp_update"],
+            marker="o",
+            linestyle="--",
+            color="r",
+            label="Empirical updates",
+            alpha=0.7,
+        )
+
+    if add_update_trace and all(
+        col in df.columns for col in optional_columns["update_trace"]
+    ):
+        ax.plot(
+            df["update_alpha"],
+            df["update_beta"],
+            marker="o",
+            linestyle="--",
+            color="purple",
+            label="Update alpha model",
+            alpha=0.7,
+        )
+
+    ax.set_xlabel("Alpha")
+    ax.set_ylabel("Beta")
+    ax.set_title("2D Line Plot of Alpha vs Beta")
+    ax.legend()
+    ax.grid(True)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    return fig
+
+
+def turn_to_penny_df(logged_metrics):
+    float_dicts = []
+    for dictionary in logged_metrics:
+        float_dicts.append({key: val.item() for key, val in dictionary.items()})
+
+    return pd.DataFrame(float_dicts).rename(
+        columns={
+            "model_1_Even": "alpha",
+            "model_2_Even": "beta",
+            "freq_model_1_Even": "freq_alpha",
+            "freq_model_2_Even": "freq_beta",
+            "upd_model_1_Even": "update_alpha",
+            "upd_model_2_Even": "update_beta",
+            "model_1_emp_Even": "alpha_emp_update",
+            "model_2_emp_Even": "beta_emp_update",
+            "model1_is_winning": "m1_winning",
+            "model2_is_winning": "m2_winning",
+            "old_model_1_Even": "old_alpha",
+            "old_model_2_Even": "old_beta",
+        }
+    )[
+        [
+            "alpha",
+            "beta",
+            "old_alpha",
+            "old_beta",
+            "freq_alpha",
+            "freq_beta",
+            "alpha_emp_update",
+            "beta_emp_update",
+            "update_alpha",
+            "update_beta",
+            "m1_winning",
+            "m2_winning",
+            "epoch",
+        ]
+    ]

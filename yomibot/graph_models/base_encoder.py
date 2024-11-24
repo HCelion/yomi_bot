@@ -1,4 +1,11 @@
-from yomibot.data.card_data import generate_sample_data, generate_rps_sample
+from yomibot.data.card_data import (
+    generate_sample_data,
+    generate_rps_sample,
+    generate_penny_sample,
+    rps_standard_payout,
+    penny_standard_payout,
+    penny_opponent_standard_payout,
+)
 import torch
 import torch.nn as nn
 from torch_geometric.nn import HeteroConv, GATv2Conv, CGConv
@@ -204,44 +211,64 @@ class RPSHandChoiceModel(nn.Module):
         return output_logits
 
 
-class RPSUtilityModel(nn.Module):
-    def __init__(self, hidden_dim, final_dim, input_bias=True, **kwargs):
-        super(RPSUtilityModel, self).__init__()
-        sample_data = generate_rps_sample()
+class PennyPolicyActorModel(nn.Module):
+    def __init__(self, hidden_dim, input_bias=True, **kwargs):
+        super(PennyPolicyActorModel, self).__init__()
+        sample_data = generate_penny_sample()
+        self.hand_size = 2
+
         card_embed_dim = sample_data["my_hand"].x.shape[-1]
 
         # Initial encoding
         self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
         self.hand_endcoder = SimpleHandConv(hidden_dim=hidden_dim, **kwargs)
-        self.final_encoder = nn.Sequential(
-            nn.Linear(2 * hidden_dim, 1, bias=input_bias),
+
+        self.value_head = nn.Sequential(
+            nn.Linear(hidden_dim, 1, bias=input_bias),
             nn.LeakyReLU(1, inplace=True),
         )
+
+        self.policy_head = nn.Sequential(
+            nn.Linear(hidden_dim, 1, bias=input_bias),
+        )
+
+        self.q_value_head = nn.Sequential(
+            nn.Linear(hidden_dim, 1, bias=input_bias),
+            nn.LeakyReLU(2, inplace=True),
+        )
+
+        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x_dict, edge_index_dict, batch_dict=None):
         x_dict = {key: self.linear_encoder(x) for key, x in x_dict.items()}
         x_dict = self.hand_endcoder(x_dict, edge_index_dict)
-        if batch_dict:
+        policy = self.policy_head(x_dict["my_hand"])
+
+        if batch_dict is not None:
+            policy, _ = to_dense_batch(
+                policy, batch_dict["my_hand"], max_num_nodes=2, fill_value=-9999
+            )
+            policy = policy.reshape((-1, 2))
+            policy = self.softmax(policy)
             my_hand_encoding = geom_nn.global_mean_pool(
                 x_dict["my_hand"], batch=batch_dict["my_hand"]
             )
-            other_hand_encoding = geom_nn.global_mean_pool(
-                x_dict["opponent_hand"], batch=batch_dict["opponent_hand"]
-            )
         else:
+            policy = policy.T
+            policy = self.softmax(policy)
             my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"], batch=None)
-            other_hand_encoding = geom_nn.global_mean_pool(
-                x_dict["opponent_hand"], batch=None
-            )
-        full_encoding = torch.cat((my_hand_encoding, other_hand_encoding), dim=1)
-        logits = self.final_encoder(full_encoding)
-        return logits
+
+        value = self.value_head(my_hand_encoding)
+        q_values = self.q_value_head(x_dict["my_hand"])
+        return policy, value, q_values
 
 
 class RPSPolicyActorModel(nn.Module):
     def __init__(self, hidden_dim, input_bias=True, **kwargs):
         super(RPSPolicyActorModel, self).__init__()
         sample_data = generate_rps_sample()
+        self.hand_size = 3
+
         card_embed_dim = sample_data["my_hand"].x.shape[-1]
 
         # Initial encoding
