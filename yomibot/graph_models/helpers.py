@@ -1,3 +1,4 @@
+import os
 from collections import Counter
 from torch import optim
 import numpy as np
@@ -6,7 +7,8 @@ import ternary
 import pytorch_lightning as pl
 from pylab import mpl, plt
 from pytorch_lightning.callbacks import ModelCheckpoint
-
+from yomibot.common.paths import data_path
+from yomibot.data.card_data import PennyData
 
 checkpoint_callback = ModelCheckpoint(save_top_k=0)
 
@@ -365,3 +367,83 @@ def turn_to_penny_df(logged_metrics):
             "epoch",
         ]
     ]
+
+
+class PennyReservoir:
+    def __init__(self, reservoir_name, payout_function=None):
+        self.reservoir_name = reservoir_name
+        self.file_folder = data_path / reservoir_name
+        self.file_folder.mkdir(parents=True, exist_ok=True)
+        self.payout_function = payout_function
+        self.num_files = 0
+        self.summary = None
+        self.generate_summary()
+
+    def __repr__(self):
+        return "PennyReservoir(" + self.reservoir_name + "," + str(len(self)) + ")"
+
+    def __len__(self):
+        return len(self.summary)
+
+    def generate_summary(self):
+        files = os.listdir(self.file_folder)
+        summary_files = []
+        num_files = 0
+        for file in files:
+            if file.endswith(".pq"):
+                df = pd.read_parquet(self.file_folder / file)
+                df["file_name"] = file
+                summary_files.append(df[["file_name", "file_index", "weight"]])
+                num_files += 1
+        if len(summary_files) > 0:
+            summary = pd.concat(summary_files)
+        else:
+            summary = pd.DataFrame(columns=["file_name", "file_index", "weight"])
+        self.summary = summary
+        self.num_files = num_files
+
+    def store_data(self, data_items):
+        serialisation = pd.DataFrame([s.serialise() for s in data_items])
+        serialisation["file_index"] = np.arange(len(serialisation))
+        file_number = self.num_files + 1
+        file_name = "file_batch_" + str(file_number) + ".pq"
+        serialisation.to_parquet(self.file_folder / file_name, index=False)
+        serialisation["file_name"] = file_name
+        self.summary = pd.concat(
+            [self.summary, serialisation[["file_name", "file_index", "weight"]]]
+        )
+        self.num_files += 1
+
+    def sample(self, num_items):
+        if num_items > len(self.summary):
+            file_names = self.summary.file_name.unique()
+            all_dfs = pd.concat(
+                pd.read_parquet(self.file_folder / fn) for fn in file_names
+            )
+        else:
+            sampled_files = self.summary.sample(
+                num_items, weights=self.summary.weight, replace=False
+            )
+            all_samples = []
+            for file_name, data in sampled_files.groupby("file_name"):
+                files_to_keep = data.file_index
+                sample = pd.read_parquet(self.file_folder / file_name).query(
+                    "file_index.isin(@files_to_keep)"
+                )
+                all_samples.append(sample)
+            all_dfs = pd.concat(all_samples)
+
+        # Shuffle and to dict
+        serialised_data = all_dfs.sample(frac=1).to_dict("records")
+        data_items = [
+            PennyData.deserialise(data, payout_function=self.payout_function)
+            for data in serialised_data
+        ]
+        return data_items
+
+    def clear_reservoir(self):
+        files = os.listdir(self.file_folder)
+        for file in files:
+            if file.endswith(".pq"):
+                os.remove(self.file_folder / file)
+        self.generate_summary()

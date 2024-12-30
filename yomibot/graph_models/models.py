@@ -1,4 +1,5 @@
 import math
+from time import time
 from copy import deepcopy
 import pandas as pd
 import logging
@@ -36,6 +37,7 @@ from yomibot.graph_models.helpers import (
     empirical_frequencies,
     turn_to_penny_df,
     plot_penny,
+    PennyReservoir,
 )
 from yomibot.data.card_data import generate_rps_sample, generate_penny_sample, CardDataset
 from yomibot.common import paths
@@ -45,6 +47,8 @@ from yomibot.data.card_data import (
     rps_non_standard_payout_opponent,
     penny_standard_payout,
     penny_opponent_standard_payout,
+    penny_non_standard_payout,
+    penny_non_standard_payout_opponent,
 )
 import warnings
 
@@ -795,7 +799,7 @@ class ClonedActor(pl.LightningModule):
 
         return preds
 
-    def generate_prob_model(self, as_dict=False):
+    def generate_prob_model(self):
         if self.type == "rps":
             data = generate_rps_sample()
         else:
@@ -806,9 +810,12 @@ class ClonedActor(pl.LightningModule):
             (category, float(value)) for category, value in zip(choices, predictions[0])
         ]
         outputs = sorted(outputs, key=lambda x: x[0])
-        if as_dict:
-            return {key: value for key, value in outputs}
-        return outputs
+        return {key: value for key, value in outputs}
+
+    def get_overfit(self):
+        prob_model = self.generate_prob_model()
+        max_prediction = max(val for _, val in prob_model.items())
+        return max_prediction
 
     def training_step(self, batch, batch_idx):
         x_dict, edge_index_dict, batch_dict = (
@@ -838,11 +845,15 @@ class ClonedFrequencyActor(ClonedActor):
         )
         policy = self.forward(x_dict, edge_index_dict, batch_dict)
         targets = batch.action_index
-        counterfactual_outcomes = batch.payout.reshape(-1, self.hand_size)
-        # log_probs = torch.log(policy)
-        counterfactual_outcomes * policy
+        # counterfactual_outcomes = batch.payout.reshape(-1, self.hand_size)
+        log_probs = torch.log(policy)
+        # counterfactual_outcomes * policy
         # loss = -(log_probs*targets).sum(dim=1).mean()
-        loss = -(counterfactual_outcomes * policy).sum(dim=1).mean()
+        if hasattr(batch, "weight"):
+            weights = batch.weight / batch.weight.sum()
+            loss = -(((targets * log_probs).sum(dim=1)) * weights).sum()
+        else:
+            loss = -(targets * log_probs).sum(dim=1).mean()
         return loss
 
 
@@ -1032,7 +1043,6 @@ class ActorCritic(pl.LightningModule):
             )
 
             action = state.self_action
-            action_index = state["my_hand"]["choices"].index(state.self_action)
             states.append(state)
             actions.append(action)
             rewards.append(state.my_utility)
@@ -1083,12 +1093,14 @@ class ActorCritic(pl.LightningModule):
             opponent_model=other_model,
             record=True,
             num_iterations=self.M,
+            actor_index=0,
         )
         states2, actions2, rewards2 = self.collect_trajectory(
             self_model=other_model,
             opponent_model=self_model,
             record=True,
             num_iterations=self.M,
+            actor_index=1,
         )
 
         self.lt_memory[0].add_set(states1)
@@ -1111,12 +1123,14 @@ class ActorCritic(pl.LightningModule):
             opponent_model=other_model,
             record=False,
             num_iterations=self.M,
+            actor_index=0,
         )
         _, mean_actions2, rewards2_mean = self.collect_trajectory(
             self_model=mean_model2,
             opponent_model=self_model,
             record=False,
             num_iterations=self.M,
+            actor_index=1,
         )
 
         utility1 = np.mean(rewards1)
@@ -1141,12 +1155,14 @@ class ActorCritic(pl.LightningModule):
             opponent_model=other_model,
             record=True,
             num_iterations=N1,
+            actor_index=0,
         )
         states_update2, updated_actions2, _ = self.collect_trajectory(
             self_model=self_model,
             opponent_model=other_model,
             record=True,
             num_iterations=N2,
+            actor_index=1,
         )
 
         self.actor_nets[0] = self.frequency_update(
@@ -1234,7 +1250,11 @@ class PennyActorCritic(pl.LightningModule):
         epsilon=0.1,
         update_epochs=20,
         frequency_epochs=100,
+        starting_probs1=None,
+        starting_probs2=None,
     ):
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
         super(PennyActorCritic, self).__init__()
         self.actor_nets = [
             PennyPolicyActorModel(hidden_dim=hidden_dim, num_layers=num_layers)
@@ -1250,7 +1270,6 @@ class PennyActorCritic(pl.LightningModule):
         ]
         self.lr = lr
         self.weight_decay = weight_decay
-        self.standard_probs = [("Odd", 0.8), ("Even", 0.2)]
         self.M = M
         self.N_win = N_win
         self.N_loss = N_loss
@@ -1259,7 +1278,9 @@ class PennyActorCritic(pl.LightningModule):
         self.payout_functions = payout_functions
         self.frequency_epochs = frequency_epochs
         self.automatic_optimization = False
-        self.lt_memory = [CircularBuffer(size=circ_buffer_size) for _ in range(2)]
+        self.lt_memory = [PennyReservoir("player_" + str(i)) for i in range(2)]
+        self.starting_probs1 = starting_probs1
+        self.starting_probs2 = starting_probs2
 
     def forward(self, batch, actor_index=0):
         if isinstance(batch, Batch):
@@ -1274,7 +1295,7 @@ class PennyActorCritic(pl.LightningModule):
                 batch.edge_index_dict,
                 None,
             )
-        policy, _, _ = self.q_nets[actor_index](
+        policy, _, _ = self.actor_nets[actor_index](
             x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
         )
         return policy
@@ -1324,51 +1345,6 @@ class PennyActorCritic(pl.LightningModule):
 
         return preds
 
-    def q_values(self, actor_index=0):
-        data = generate_penny_sample()
-        choices = data["my_hand"].choices
-        predictions = self.predict_step(data, actor_index=actor_index, frequency=False)
-        predictions = predictions.reshape(1, 3)
-
-        outputs = [
-            (category, float(value)) for category, value in zip(choices, predictions[0])
-        ]
-        outputs = sorted(outputs, key=lambda x: x[0])
-        return {key: value for key, value in outputs}
-
-    def valuation(self, batch, actor_index=0):
-        if isinstance(batch, Batch):
-            x_dict, edge_index_dict, batch_dict = (
-                batch.x_dict,
-                batch.edge_index_dict,
-                batch.batch_dict,
-            )
-        else:
-            x_dict, edge_index_dict, batch_dict = (
-                batch.x_dict,
-                batch.edge_index_dict,
-                None,
-            )
-        _, values, _ = self.value_nets[actor_index](
-            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
-        )
-        return values
-
-    def configure_optimizers(self):
-        actor_optimizers = [
-            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-            for net in self.actor_nets
-        ]
-        critic_optimizers = [
-            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-            for net in self.value_nets
-        ]
-        frequency_optimizers = [
-            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-            for net in self.frequency_nets
-        ]
-        return actor_optimizers + critic_optimizers + frequency_optimizers
-
     def generate_prob_model(self, as_dict=False, actor_index=0, frequency=False):
         data = generate_penny_sample()
         choices = data["my_hand"].choices
@@ -1385,30 +1361,36 @@ class PennyActorCritic(pl.LightningModule):
             (category, float(value)) for category, value in zip(choices, predictions[0])
         ]
         outputs = sorted(outputs, key=lambda x: x[0])
-        if as_dict:
-            return {key: value for key, value in outputs}
-        return outputs
+        return {key: value for key, value in outputs}
 
-    def collect_trajectory(
-        self, num_iterations, self_model, opponent_model, actor_index=0
-    ):
-        states, actions, rewards = [], [], []
-        opponent_index = 1 if actor_index == 0 else 0
+    def collect_trajectory(self, num_iterations, self_model, opponent_model, epoch=None):
+        states1, actions1, rewards1 = [], [], []
+        states2, actions2, rewards2 = [], [], []
+
         for _ in range(num_iterations):
-            state = generate_penny_sample(
-                payout_function=self.payout_functions[actor_index],
+            state, other_state = generate_penny_sample(
+                payout_function=self.payout_functions[0],
                 self_model=self_model,
                 opponent_model=opponent_model,
-                opp_payout_function=self.payout_functions[opponent_index],
-                mirror=False,
+                opp_payout_function=self.payout_functions[1],
+                mirror=True,
             )
-
             action = state.self_action
-            action_index = state["my_hand"]["choices"].index(state.self_action)
-            states.append(state)
-            actions.append(action)
-            rewards.append(state.my_utility)
-        return states, actions, rewards
+            other_action = other_state.self_action
+            states1.append(state)
+            states2.append(other_state)
+            actions1.append(action)
+            actions2.append(other_action)
+            rewards1.append(state.my_utility)
+            rewards2.append(other_state.my_utility)
+
+        if epoch is not None:
+            for state in states1:
+                state.weight = epoch + 1
+            for state in states2:
+                state.weight = epoch + 1
+
+        return states1, actions1, rewards1, states2, actions2, rewards2
 
     def compute_returns(self, rewards):
         return torch.FloatTensor(rewards)
@@ -1426,75 +1408,97 @@ class PennyActorCritic(pl.LightningModule):
             logger=False,
             enable_progress_bar=False,
             callbacks=[checkpoint_callback],
+            gradient_clip_val=0.5,
         )
         trainer.fit(model_updated, dataloader)
         return model_updated
 
-    def frequency_update(self, policy_model, states):
+    def frequency_update(self, states):
         model_updated = ClonedFrequencyActor(
-            deepcopy(policy_model),
+            PennyPolicyActorModel(hidden_dim=self.hidden_dim, num_layers=self.num_layers),
             weight_decay=self.weight_decay,
             lr=self.lr,
             type="penny",
         )
-        dataloader = DataLoader(states, batch_size=256, shuffle=True)
+        dataloader = DataLoader(states * 10, batch_size=256, shuffle=True)
+
         trainer = pl.Trainer(
             max_epochs=self.frequency_epochs,
             logger=False,
             enable_progress_bar=False,
             callbacks=[checkpoint_callback],
+            gradient_clip_val=0.5,
         )
         trainer.fit(model_updated, dataloader)
         return model_updated
 
+    def configure_optimizers(self):
+        actor_optimizers = [
+            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            for net in self.actor_nets
+        ]
+        critic_optimizers = [
+            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            for net in self.value_nets
+        ]
+        frequency_optimizers = [
+            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            for net in self.frequency_nets
+        ]
+        return actor_optimizers + critic_optimizers + frequency_optimizers
+
     def training_step(self, batch, batch_idx):
         current_epoch = self.current_epoch
-        if current_epoch != 0:
-            self_model = self.generate_prob_model(actor_index=0)
-            other_model = self.generate_prob_model(actor_index=1)
-        else:
-            self_model = self.standard_probs
-            other_model = self.standard_probs
 
-        old_model1 = self.generate_prob_model(actor_index=0, as_dict=True)
-        old_model2 = self.generate_prob_model(actor_index=1, as_dict=True)
+        if (current_epoch == 0) and self.starting_probs1:
+            for reservoir in self.lt_memory:
+                reservoir.clear_reservoir()
+            start_states1, _, _, start_states2, _, _ = self.collect_trajectory(
+                self_model=self.starting_probs1,
+                opponent_model=self.starting_probs2,
+                num_iterations=self.M,
+            )
 
-        states1, actions1, rewards1 = self.collect_trajectory(
-            self_model=self_model,
-            opponent_model=other_model,
-            num_iterations=self.M,
+            self.actor_nets[0] = self.frequency_update(start_states1).actor_net
+            self.actor_nets[1] = self.frequency_update(start_states2).actor_net
+
+        self_model = self.generate_prob_model(actor_index=0)
+        other_model = self.generate_prob_model(actor_index=1)
+        old_model1 = self.generate_prob_model(actor_index=0)
+        old_model2 = self.generate_prob_model(actor_index=1)
+
+        states1, actions1, rewards1, states2, actions2, rewards2 = (
+            self.collect_trajectory(
+                self_model=self_model,
+                opponent_model=other_model,
+                num_iterations=self.M,
+                epoch=current_epoch,
+            )
         )
-        states2, actions2, rewards2 = self.collect_trajectory(
-            self_model=other_model,
-            opponent_model=self_model,
-            num_iterations=self.M,
-        )
 
-        self.lt_memory[0].add_set(states1)
-        self.lt_memory[1].add_set(states2)
+        self.lt_memory[0].store_data(states1)
+        self.lt_memory[1].store_data(states2)
 
         self.frequency_nets[0] = self.frequency_update(
-            self.frequency_nets[0], states1
+            self.lt_memory[0].sample(self.M)
         ).actor_net
         self.frequency_nets[1] = self.frequency_update(
-            self.frequency_nets[1], states2
+            self.lt_memory[1].sample(self.M)
         ).actor_net
 
         empirical_frequencies_1 = empirical_frequencies(actions1)
         empirical_frequencies_2 = empirical_frequencies(actions2)
-
         mean_model1 = self.generate_prob_model(actor_index=0, frequency=True)
         mean_model2 = self.generate_prob_model(actor_index=1, frequency=True)
-        _, mean_actions1, rewards1_mean = self.collect_trajectory(
+
+        _, mean_actions1, rewards1_mean, _, _, _ = self.collect_trajectory(
             self_model=mean_model1,
             opponent_model=other_model,
-            record=False,
             num_iterations=self.M,
         )
-        _, mean_actions2, rewards2_mean = self.collect_trajectory(
-            self_model=mean_model2,
-            opponent_model=self_model,
-            record=False,
+        _, _, _, _, mean_actions2, rewards2_mean = self.collect_trajectory(
+            self_model=self_model,
+            opponent_model=mean_model2,
             num_iterations=self.M,
         )
 
@@ -1509,37 +1513,39 @@ class PennyActorCritic(pl.LightningModule):
         N1 = self.N_win if (utility1 > mean_utility1) else self.N_loss
         N2 = self.N_win if (utility2 > mean_utility2) else self.N_loss
 
-        # empirical_frequencies([s.opponent_action for s in states1])
         model1_updated = self.policy_update(self.actor_nets[0], states1)
+        num_iterations1 = 0
+        while model1_updated.get_overfit() < (1 - 0.1) and (num_iterations1 < 10):
+            model1_updated = self.policy_update(model1_updated.actor_net, states1)
+            num_iterations1 += 1
         model2_updated = self.policy_update(self.actor_nets[1], states2)
+        num_iterations2 = 0
+        while (model2_updated.get_overfit() < (1 - 0.1)) and (num_iterations2 < 10):
+            model2_updated = self.policy_update(model2_updated.actor_net, states2)
+            num_iterations2 += 1
 
         updated_model1_probs = model1_updated.generate_prob_model()
         updated_model2_probs = model2_updated.generate_prob_model()
-        states_update1, updated_actions1, _ = self.collect_trajectory(
-            self_model=self_model,
+        states_update1, updated_actions1, _, _, _, _ = self.collect_trajectory(
+            self_model=updated_model1_probs,
             opponent_model=other_model,
-            record=True,
             num_iterations=N1,
+            epoch=current_epoch,
         )
-        states_update2, updated_actions2, _ = self.collect_trajectory(
+        _, _, _, states_update2, updated_actions2, _ = self.collect_trajectory(
             self_model=self_model,
-            opponent_model=other_model,
-            record=True,
+            opponent_model=updated_model2_probs,
             num_iterations=N2,
+            epoch=current_epoch,
         )
 
-        self.actor_nets[0] = self.frequency_update(
-            self.actor_nets[0], states1 + states_update1
-        ).actor_net
-        self.actor_nets[1] = self.frequency_update(
-            self.actor_nets[1], states2 + states_update2
-        ).actor_net
-
+        self.actor_nets[0] = self.frequency_update(states1 + states_update1).actor_net
+        self.actor_nets[1] = self.frequency_update(states2 + states_update2).actor_net
         empirical_updated_probs1 = empirical_frequencies(actions1 + updated_actions1)
         empirical_updated_probs2 = empirical_frequencies(actions2 + updated_actions2)
 
-        model1 = self.generate_prob_model(actor_index=0, as_dict=True)
-        model2 = self.generate_prob_model(actor_index=1, as_dict=True)
+        model1 = self.generate_prob_model(actor_index=0)
+        model2 = self.generate_prob_model(actor_index=1)
         m1_metrics = {"model_1_" + key: value for key, value in model1.items()}
         m2_metrics = {"model_2_" + key: value for key, value in model2.items()}
         old_m1_metrics = {
@@ -1554,8 +1560,8 @@ class PennyActorCritic(pl.LightningModule):
         emp_m2_metrics = {
             "model_2_emp_" + key: value for key, value in empirical_frequencies_2.items()
         }
-        updated_model1_probs = model1_updated.generate_prob_model(as_dict=True)
-        updated_model2_probs = model2_updated.generate_prob_model(as_dict=True)
+        updated_model1_probs = model1_updated.generate_prob_model()
+        updated_model2_probs = model2_updated.generate_prob_model()
         upd_model_1_metrics = {
             "upd_model_1_" + key: value for key, value in updated_model1_probs.items()
         }
@@ -1571,12 +1577,8 @@ class PennyActorCritic(pl.LightningModule):
             for key, value in empirical_updated_probs2.items()
         }
 
-        freq_model1 = self.generate_prob_model(
-            actor_index=0, as_dict=True, frequency=True
-        )
-        freq_model2 = self.generate_prob_model(
-            actor_index=1, as_dict=True, frequency=True
-        )
+        freq_model1 = self.generate_prob_model(actor_index=0, frequency=True)
+        freq_model2 = self.generate_prob_model(actor_index=1, frequency=True)
         freq_m1_metrics = {
             "freq_model_1_" + key: value for key, value in freq_model1.items()
         }
@@ -1609,23 +1611,33 @@ from yomibot.graph_models.helpers import get_nash_equilibria
 
 # A = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
 # A = np.array([[0, -1, 2], [1, 0, -1], [-1, 1, 0]])
-A = np.array([[1, -1], [-1, 1]])
+# A = np.array([[1, -1], [-1, 1]])
+# A = np.array([[1, -1], [-1, 1]])
+A = np.array([[4, -1], [-1, 1]])
 player_1_optimum, player_2_optimum = get_nash_equilibria(A)
 
 non_standard_situation = [rps_non_standard_payout, rps_non_standard_payout_opponent]
 standard_situation = [rps_standard_payout, rps_standard_payout]
 penny_payout = [penny_standard_payout, penny_opponent_standard_payout]
+penny_payout_non_standard = [
+    penny_non_standard_payout,
+    penny_non_standard_payout_opponent,
+]
+
 actor_critic = PennyActorCritic(
-    M=1000,
+    M=1001,
     payout_functions=penny_payout,
     weight_decay=0.0001,
-    lr=0.01,
+    lr=0.05,
     N_win=100,
     N_loss=200,
     frequency_epochs=10,
-    update_epochs=20,
+    update_epochs=40,
     circ_buffer_size=100000,
+    starting_probs1={"Odd": 0.8, "Even": 0.2},
+    starting_probs2={"Odd": 0.2, "Even": 0.8},
 )
+
 self = actor_critic
 
 metrics_callback = MetricsCallback()
@@ -1636,15 +1648,64 @@ trainer.fit(actor_critic, [0])
 
 logged_metrics = metrics_callback.metrics
 
+# TODO: Make 1 and 2 train on the same game
+
+#
+#
+# model1_history = [parse_log_item(log,1) for log in logged_metrics]
+# model2_history = [parse_log_item(log, 2) for log in logged_metrics]
+# freq_model1_history = [parse_freq_log_item(log,1) for log in logged_metrics]
+# freq_model2_history = [parse_freq_log_item(log,2) for log in logged_metrics]
+#
+#
+# fig = plot_model_history(model1_history, player_1_optimum)
+# fig = plot_model_history(model2_history, player_2_optimum)
+# fig = plot_model_history(freq_model1_history, player_1_optimum)
+# fig = plot_model_history(freq_model2_history, player_2_optimum)
+#
+
+
 penny_df = turn_to_penny_df(logged_metrics)
+penny_df.tail(100)[["m1_winning", "m2_winning"]].corr()
+
+penny_df.tail(20).freq_alpha.mean()
+penny_df.tail(20).freq_beta.mean()
 
 (
     penny_df.assign(d_alpha=lambda x: x.alpha - x.old_alpha)
     .assign(d_beta=lambda x: x.beta - x.old_beta)
-    .plot(y="d_beta", x="d_alpha")
+    .plot(x="beta", y="d_alpha")
 )
 
-plot_penny(penny_df)
+penny_df.plot(x="epoch", y="alpha_emp_update")
+penny_df.plot(x="epoch", y="beta_emp_update")
+penny_df.plot(x="epoch", y="beta")
+penny_df.plot(x="epoch", y="freq_alpha")
+penny_df.plot(x="epoch", y="freq_beta")
+penny_df[["m1_winning", "m2_winning"]].corr()
+
+
+(
+    penny_df.assign(
+        error=lambda x: np.sqrt(
+            (x.freq_alpha - 0.5) * (x.freq_alpha - 0.5)
+            + (x.freq_beta - 0.5) * (x.freq_beta - 0.5)
+        )
+    ).error.plot()
+)
+
+(
+    penny_df.assign(
+        error=lambda x: np.sqrt(
+            (x.freq_alpha - 0.5) * (x.freq_alpha - 0.5)
+            + (x.freq_beta - 0.5) * (x.freq_beta - 0.5)
+        )
+    ).error.plot()
+)
+
+plot_penny(
+    penny_df, add_freq_trace=True, add_emp_update_trace=False, add_update_trace=False
+)
 
 
 # model1_history = [parse_log_item(log,1) for log in logged_metrics]

@@ -239,6 +239,14 @@ class PennyPolicyActorModel(nn.Module):
 
         self.softmax = nn.Softmax(dim=1)
 
+        self._initialize_policy_head()
+
+    def _initialize_policy_head(self):
+        # Initialize weights to zero and biases to zero
+        nn.init.constant_(self.policy_head[0].weight, 0)
+        if self.policy_head[0].bias is not None:
+            nn.init.constant_(self.policy_head[0].bias, 0)
+
     def forward(self, x_dict, edge_index_dict, batch_dict=None):
         x_dict = {key: self.linear_encoder(x) for key, x in x_dict.items()}
         x_dict = self.hand_endcoder(x_dict, edge_index_dict)

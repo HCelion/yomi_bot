@@ -20,6 +20,7 @@ torch-geometric = "^2.5.3"
 nashpy = "^0.0.41"
 python-ternary = "^1.0.8"
 tensorboard = "^2.18.0"
+fastparquet = "^2024.11.0"
 
 [tool.poetry.dev-dependencies]
 

@@ -175,4 +175,5 @@ cython_debug/
 *.whl
 ./data
 /model
+/data
 logs
