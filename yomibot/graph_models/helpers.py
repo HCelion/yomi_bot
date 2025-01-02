@@ -370,11 +370,11 @@ def turn_to_penny_df(logged_metrics):
 
 
 class PennyReservoir:
-    def __init__(self, reservoir_name, payout_function=None):
+    def __init__(self, reservoir_name, payout_dictionary=None):
         self.reservoir_name = reservoir_name
         self.file_folder = data_path / reservoir_name
         self.file_folder.mkdir(parents=True, exist_ok=True)
-        self.payout_function = payout_function
+        self.payout_dictionary = payout_dictionary
         self.num_files = 0
         self.summary = None
         self.generate_summary()
@@ -436,7 +436,7 @@ class PennyReservoir:
         # Shuffle and to dict
         serialised_data = all_dfs.sample(frac=1).to_dict("records")
         data_items = [
-            PennyData.deserialise(data, payout_function=self.payout_function)
+            PennyData.deserialise(data, payout_dictionary=self.payout_dictionary)
             for data in serialised_data
         ]
         return data_items

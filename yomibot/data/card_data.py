@@ -7,6 +7,7 @@ from torch import zeros
 from torch_geometric.data import HeteroData, Dataset
 from torch.nn import Embedding
 from yomibot.common.paths import embeddings_path
+from yomibot.data.helpers import flatten_dict, unflatten_dict
 
 
 class CustomEmbedding:
@@ -327,6 +328,22 @@ def penny_opponent_standard_payout(card_1, card_2):
         return -1
 
 
+def penny_even_payout(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_1 == "Even":
+        return 1
+    else:
+        return -1
+
+
+def penny_odd_payout(card_1, card_2):
+    card_combo = (card_1, card_2)
+    if card_1 == "Odd":
+        return 1
+    else:
+        return -1
+
+
 def penny_non_standard_payout_opponent(card_1, card_2):
     card_combo = (card_1, card_2)
     if card_combo in [("Even", "Even")]:
@@ -477,6 +494,7 @@ def get_penny_regrets(choices, self_policy, opp_policy, payout_function):
 
 class PennyData(HeteroData):
     penny_encoder = PennyEmbedding.load()
+    state_encoder = StateEmbedding.load()
 
     @classmethod
     def from_values(
@@ -486,17 +504,25 @@ class PennyData(HeteroData):
         opp_action,
         opp_model,
         weight=1,
-        payout_function=None,
+        state=None,
+        payout_dictionary=None,
+        actor_index=0,
         **kwargs,
     ):
-        if payout_function is None:
+        if state is None:
+            state = choice([1, 2, 3])
+
+        if payout_dictionary is None:
             payout_function = penny_standard_payout
+        else:
+            payout_function = payout_dictionary[state][actor_index]
 
         my_hand = ["Odd", "Even"]
         shuffle(my_hand)
         opponent_hand = ["Odd", "Even"]
         shuffle(opponent_hand)
 
+        state_embedding = cls.state_encoder.encode([state])
         penny_data = cls()
         penny_data["my_hand"].x = cls.penny_encoder.encode(my_hand)
         penny_data["opponent_hand"].x = cls.penny_encoder.encode(opponent_hand)
@@ -522,10 +548,15 @@ class PennyData(HeteroData):
         penny_data.my_utility = payout_function(self_action, opp_action)
         penny_data.payout = get_payout_tensor(my_hand, opp_action, payout_function)
         penny_data.regret = get_penny_regrets(
-            my_hand, self_model, opp_model, payout_function
+            my_hand, self_model[state], opp_model[state], payout_function
         )
         penny_data.weight = weight
         penny_data.other_attributes = list(kwargs.keys())
+
+        penny_data.state_label = state
+        penny_data.state_x = state_embedding
+
+        penny_data.actor_index = actor_index
 
         for key, value in kwargs.items():
             setattr(penny_data, key, value)
@@ -533,14 +564,11 @@ class PennyData(HeteroData):
         return penny_data
 
     def serialise(self):
-        self_model = {
-            "self_policy_" + action: value
-            for action, value in self["my_hand"].policy.items()
-        }
-        opp_model = {
-            "opp_policy_" + action: value
-            for action, value in self["opponent_hand"].policy.items()
-        }
+        my_policy = self["my_hand"].policy
+        self_model = flatten_dict(my_policy, parent_key="self_policy")
+
+        opp_policy = self["opponent_hand"].policy
+        opp_model = flatten_dict(opp_policy, parent_key="other_policy")
 
         serial_dict = {
             "self_action": self.self_action,
@@ -551,29 +579,41 @@ class PennyData(HeteroData):
         for key in self.other_attributes:
             serial_dict[key] = getattr(self, key)
         serial_dict["weight"] = self.weight
+        serial_dict["state"] = self.state_label
+        serial_dict["actor_index"] = self.actor_index
         return serial_dict
 
     @classmethod
-    def deserialise(cls, container, payout_function=None):
-        self_model = {
-            key.replace("self_policy_", ""): value
-            for key, value in container.items()
-            if key.startswith("self_policy_")
-        }
-        opp_model = {
-            key.replace("opp_policy_", ""): value
-            for key, value in container.items()
-            if key.startswith("opp_policy_")
-        }
+    def deserialise(cls, container, payout_dictionary=None):
+        self_model = unflatten_dict(
+            {
+                key: value
+                for key, value in container.items()
+                if key.startswith("self_policy")
+            }
+        )["self_policy"]
+        self_model = {int(key): val for key, val in self_model.items()}
+
+        opp_model = unflatten_dict(
+            {
+                key: value
+                for key, value in container.items()
+                if key.startswith("other_policy")
+            }
+        )["other_policy"]
+        opp_model = {int(key): val for key, val in self_model.items()}
+
         self_action = container["self_action"]
         opp_action = container["opp_action"]
+        state = container["state"]
+        actor_index = container["actor_index"]
         kwargs = {
             key: value
             for key, value in container.items()
             if (
-                (key not in self_model)
-                and (key not in opp_model)
-                and (key not in ["self_action", "opp_action"])
+                (not key.startswith("self_policy"))
+                and (not key.startswith("other_policy"))
+                and (key not in ["self_action", "opp_action", "state", "actor_index"])
             )
         }
         return cls.from_values(
@@ -581,42 +621,56 @@ class PennyData(HeteroData):
             opp_action=opp_action,
             self_model=self_model,
             opp_model=opp_model,
-            payout_function=payout_function,
+            payout_dictionary=payout_dictionary,
+            state=state,
+            actor_index=actor_index,
             **kwargs,
         )
 
 
 def generate_penny_sample(
-    payout_function=penny_standard_payout,
     self_model=None,
     opponent_model=None,
     mirror=False,
-    opp_payout_function=penny_opponent_standard_payout,
+    state=None,
+    payout_dictionary=None,
     **kwargs,
 ):
+    if state is None:
+        state = choice([1, 2, 3])
+
+    if payout_dictionary is None:
+        payout_function = penny_standard_payout
+        opp_payout_function = penny_opponent_standard_payout
+        payout_dictionary = {
+            state: (penny_standard_payout, penny_opponent_standard_payout)
+        }
+    else:
+        payout_function, opp_payout_function = payout_dictionary[state]
+
     if self_model is None:
         self_action = choice(["Odd", "Even"])
-        self_model = {"Odd": 0.5, "Even": 0.5}
+        self_model = {state: {"Odd": 0.5, "Even": 0.5} for state in [1, 2, 3]}
     else:
-        options = [key for key in self_model.keys()]
-        probabilities = [value for value in self_model.values()]
+        options = [key for key in self_model[state].keys()]
+        probabilities = [value for value in self_model[state].values()]
         self_action = choices(options, probabilities)[0]
 
     if opponent_model is None:
         opponent_action = choice(["Odd", "Even"])
-        opponent_model = {"Odd": 0.5, "Even": 0.5}
+        opponent_model = {state: {"Odd": 0.5, "Even": 0.5} for state in [1, 2, 3]}
     else:
-        options = [key for key in opponent_model.keys()]
-        probabilities = [value for value in opponent_model.values()]
+        options = [key for key in opponent_model[state].keys()]
+        probabilities = [value for value in opponent_model[state].values()]
         opponent_action = choices(options, probabilities)[0]
-
     penny_data = PennyData.from_values(
         self_action=self_action,
         self_model=self_model,
         opp_action=opponent_action,
         opp_model=opponent_model,
-        payout_function=payout_function,
-        **kwargs,
+        state=state,
+        payout_dictionary=payout_dictionary,
+        actor_index=0,
     )
 
     if mirror:
@@ -625,7 +679,8 @@ def generate_penny_sample(
             self_model=opponent_model,
             opp_action=self_action,
             opp_model=self_model,
-            payout_function=opp_payout_function,
+            payout_dictionary=payout_dictionary,
+            actor_index=1,
             **kwargs,
         )
         return penny_data, other_data

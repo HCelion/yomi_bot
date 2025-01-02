@@ -218,57 +218,138 @@ class PennyPolicyActorModel(nn.Module):
         self.hand_size = 2
 
         card_embed_dim = sample_data["my_hand"].x.shape[-1]
+        state_x_dim = sample_data.state_x.shape[-1]
 
         # Initial encoding
         self.linear_encoder = nn.Linear(card_embed_dim, hidden_dim, bias=input_bias)
         self.hand_endcoder = SimpleHandConv(hidden_dim=hidden_dim, **kwargs)
+        self.state_x_encoder = nn.Linear(state_x_dim, hidden_dim, bias=input_bias)
 
         self.value_head = nn.Sequential(
-            nn.Linear(hidden_dim, 1, bias=input_bias),
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LeakyReLU(1, inplace=True),
+            nn.Linear(hidden_dim, 1, bias=input_bias),
         )
 
         self.policy_head = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(1, inplace=True),
             nn.Linear(hidden_dim, 1, bias=input_bias),
         )
-
         self.q_value_head = nn.Sequential(
-            nn.Linear(hidden_dim, 1, bias=input_bias),
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LeakyReLU(2, inplace=True),
+            nn.Linear(hidden_dim, 1, bias=input_bias),
         )
 
         self.softmax = nn.Softmax(dim=1)
 
-        self._initialize_policy_head()
+        # self._initialize_policy_head()
 
     def _initialize_policy_head(self):
         # Initialize weights to zero and biases to zero
-        nn.init.constant_(self.policy_head[0].weight, 0)
-        if self.policy_head[0].bias is not None:
-            nn.init.constant_(self.policy_head[0].bias, 0)
+        for head in [self.value_head, self.policy_head, self.q_value_head]:
+            nn.init.constant_(head[-1].weight, 0)
+            if head[-1].bias is not None:
+                nn.init.constant_(head[-1].bias, 0)
 
-    def forward(self, x_dict, edge_index_dict, batch_dict=None):
+    def forward(self, x_dict, edge_index_dict, state_x, batch_dict=None):
         x_dict = {key: self.linear_encoder(x) for key, x in x_dict.items()}
         x_dict = self.hand_endcoder(x_dict, edge_index_dict)
-        policy = self.policy_head(x_dict["my_hand"])
+        state_x_encoded = self.state_x_encoder(state_x)
+        if batch_dict is not None:
+            state_x_encoded_expanded = state_x_encoded[batch_dict["my_hand"]]
+        else:
+            state_x_encoded_expanded = state_x_encoded.repeat(
+                x_dict["my_hand"].shape[0], 1
+            )
+
+        combined_representation = torch.cat(
+            (x_dict["my_hand"], state_x_encoded_expanded), dim=-1
+        )
+
+        policy = self.policy_head(combined_representation)
 
         if batch_dict is not None:
             policy, _ = to_dense_batch(
                 policy, batch_dict["my_hand"], max_num_nodes=2, fill_value=-9999
             )
             policy = policy.reshape((-1, 2))
-            policy = self.softmax(policy)
+
+            # policy = self.softmax(policy)
             my_hand_encoding = geom_nn.global_mean_pool(
-                x_dict["my_hand"], batch=batch_dict["my_hand"]
+                combined_representation, batch=batch_dict["my_hand"]
             )
         else:
             policy = policy.T
-            policy = self.softmax(policy)
-            my_hand_encoding = geom_nn.global_mean_pool(x_dict["my_hand"], batch=None)
+            # policy = self.softmax(policy)
+            my_hand_encoding = geom_nn.global_mean_pool(
+                combined_representation, batch=None
+            )
 
         value = self.value_head(my_hand_encoding)
-        q_values = self.q_value_head(x_dict["my_hand"])
+        q_values = self.q_value_head(combined_representation)
         return policy, value, q_values
+
+    def calculate_loss(self, batch):
+        x_dict, edge_index_dict, state_x, batch_dict = (
+            batch.x_dict,
+            batch.edge_index_dict,
+            batch.state_x,
+            batch.batch_dict,
+        )
+        logits, _, _ = self.forward(
+            x_dict=x_dict,
+            edge_index_dict=edge_index_dict,
+            state_x=state_x,
+            batch_dict=batch_dict,
+        )
+        targets = batch.action_index.float()  # Ensure targets are float for BCE loss
+        loss = nn.BCEWithLogitsLoss()(logits, targets)
+        return loss
+
+    def translate_logits_to_probabilities(self, logits):
+        probabilities = torch.sigmoid(logits)
+        return probabilities
+
+
+# import pandas as pd
+# from torch_geometric.loader import DataLoader
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+# model = PennyPolicyActorModel(hidden_dim=4, num_layers=2)
+# self_model = {1:{'Even':1, 'Odd':0}, 2:{'Even':0, 'Odd':1}, 3:{'Even':1, 'Odd':0}}
+# data_list = [generate_penny_sample(self_model = self_model ) for _ in range(1000)]
+# batch = Batch.from_data_list(data_list)
+# dataloader = DataLoader(data_list , batch_size=32, shuffle=True)
+#
+#
+# num_epochs = 10
+#
+# for epoch in range(num_epochs):
+#     model.train()
+#     total_loss = 0
+#     for batch in dataloader:
+#         optimizer.zero_grad()
+#         loss = model.calculate_loss(batch)
+#         loss.backward()
+#         optimizer.step()
+#         total_loss += loss.item()
+#
+#     avg_loss = total_loss / len(dataloader)
+#     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
+#     for name, param in model.named_parameters():
+#         if param.grad is not None:
+#             print(f"Gradients for {name}: {param.grad.norm()}")
+#
+# x_dict, edge_index_dict,state_x, batch_dict = (
+#     batch.x_dict,
+#     batch.edge_index_dict,
+#     batch.state_x,
+#     batch.batch_dict,
+# )
+#
+# model = PennyPolicyActorModel(hidden_dim=hidden_dim)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 
 class RPSPolicyActorModel(nn.Module):
@@ -293,7 +374,7 @@ class RPSPolicyActorModel(nn.Module):
         )
 
         self.q_value_head = nn.Sequential(
-            nn.Linear(hidden_dim, 1, bias=input_bias),
+            nn.Linear(hidden_dim, 2, bias=input_bias),
             nn.LeakyReLU(3, inplace=True),
         )
 
