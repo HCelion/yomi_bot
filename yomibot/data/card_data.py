@@ -507,6 +507,7 @@ class PennyData(HeteroData):
         state=None,
         payout_dictionary=None,
         actor_index=0,
+        regret_dict=None,
         **kwargs,
     ):
         if state is None:
@@ -547,9 +548,14 @@ class PennyData(HeteroData):
         penny_data.opponent_action = opp_action
         penny_data.my_utility = payout_function(self_action, opp_action)
         penny_data.payout = get_payout_tensor(my_hand, opp_action, payout_function)
-        penny_data.regret = get_penny_regrets(
-            my_hand, self_model[state], opp_model[state], payout_function
-        )
+        if regret_dict is None:
+            penny_data.regret = get_penny_regrets(
+                my_hand, self_model[state], opp_model[state], payout_function
+            )
+        else:
+            penny_data.regret = torch.tensor(
+                [regret_dict[choice] for choice in my_hand]
+            ).reshape(-1, 1)
         penny_data.weight = weight
         penny_data.other_attributes = list(kwargs.keys())
 
@@ -570,12 +576,22 @@ class PennyData(HeteroData):
         opp_policy = self["opponent_hand"].policy
         opp_model = flatten_dict(opp_policy, parent_key="other_policy")
 
+        regret_dict = flatten_dict(
+            {
+                action: float(regret)
+                for action, regret in zip(self["my_hand"].choices, self.regret)
+            },
+            "regret",
+        )
+
         serial_dict = {
             "self_action": self.self_action,
             "opp_action": self.opponent_action,
             **self_model,
             **opp_model,
+            **regret_dict,
         }
+
         for key in self.other_attributes:
             serial_dict[key] = getattr(self, key)
         serial_dict["weight"] = self.weight
@@ -607,12 +623,14 @@ class PennyData(HeteroData):
         opp_action = container["opp_action"]
         state = container["state"]
         actor_index = container["actor_index"]
+        regret_dict = {"Even": container["regret.Even"], "Odd": container["regret.Odd"]}
         kwargs = {
             key: value
             for key, value in container.items()
             if (
                 (not key.startswith("self_policy"))
                 and (not key.startswith("other_policy"))
+                and (not (not key.startswith("regret.")))
                 and (key not in ["self_action", "opp_action", "state", "actor_index"])
             )
         }
@@ -624,6 +642,7 @@ class PennyData(HeteroData):
             payout_dictionary=payout_dictionary,
             state=state,
             actor_index=actor_index,
+            regret_dict=regret_dict,
             **kwargs,
         )
 
@@ -681,11 +700,70 @@ def generate_penny_sample(
             opp_model=self_model,
             payout_dictionary=payout_dictionary,
             actor_index=1,
+            state=state,
             **kwargs,
         )
         return penny_data, other_data
 
     return penny_data
+
+
+#
+# from yomibot.graph_models.helpers import (
+#     get_empirical_regrets,
+#     PennyReservoir,
+# )
+#
+#
+# self_model = {1:{'Even':0.2, 'Odd':0.8}, 2:{'Even':0.2, 'Odd':0.8}, 3:{'Even':0.2, 'Odd':0.8}}
+# opponent_model = {1:{'Even':0.2, 'Odd':0.8}, 2:{'Even':0.2, 'Odd':0.8}, 3:{'Even':0.2, 'Odd':0.8}}
+# payout_dictionary = {1:(penny_standard_payout, penny_opponent_standard_payout), 2:(penny_standard_payout, penny_opponent_standard_payout), 3:(penny_standard_payout, penny_opponent_standard_payout)}
+# reverse_dictionary = {1:(penny_opponent_standard_payout, penny_standard_payout), 2:(penny_opponent_standard_payout, penny_standard_payout), 3:(penny_opponent_standard_payout, penny_standard_payout)}
+# data_sample = [generate_penny_sample(self_model=self_model, opponent_model=opponent_model,  payout_dictionary=payout_dictionary)]
+# data_sample_reverse = [generate_penny_sample(self_model=self_model, opponent_model=opponent_model,  payout_dictionary=reverse_dictionary)]
+#
+# data = data_sample[0]
+#
+# container = data.serialise()
+#
+# PennyData.deserialise(container).regret
+# data.regret
+#
+#
+# regret_dict = {'Even':container['regret.Even'],'Odd':container['regret.Odd']}
+#
+# choices = data['my_hand'].choices
+# regret = torch.tensor([regret_dict[choice] for choice in choices]).reshape(-1,1)
+#
+# data.regret
+# regret
+#
+# {action:float(regret) for action, regret in zip(data['my_hand'].choices , data.regret)}
+#
+# get_empirical_regrets(data_sample)
+# get_empirical_regrets(data_sample_reverse)
+#
+# from yomibot.common.paths import data_path
+# inverted_dictionary = invert_payout_dictionary(payout_dictionary)
+# reservoir = PennyReservoir( 'test_reservoir', payout_dictionary=payout_dictionary)
+# inverse_reservoir = PennyReservoir( 'test_reservoir_invers', payout_dictionary=inverted_dictionary)
+#
+# reservoir.clear_reservoir()
+# inverse_reservoir.clear_reservoir()
+#
+# reservoir.store_data(data_sample)
+# reconstruction = reservoir.sample(10)
+#
+# inverse_reservoir.store_data(data_sample_reverse)
+# inverse_reconstruction = inverse_reservoir.sample(10)
+#
+#
+#
+# get_empirical_regrets(data_sample)
+# get_empirical_regrets(reconstruction)
+# get_empirical_regrets(data_sample_reverse)
+# get_empirical_regrets(inverse_reconstruction)
+# #
 
 
 class CardDataset(Dataset):

@@ -9,6 +9,7 @@ from pylab import mpl, plt
 from pytorch_lightning.callbacks import ModelCheckpoint
 from yomibot.common.paths import data_path
 from yomibot.data.card_data import PennyData
+from yomibot.data.helpers import flatten_dict, unflatten_dict
 
 checkpoint_callback = ModelCheckpoint(save_top_k=0)
 
@@ -260,113 +261,106 @@ def empirical_frequencies(list_items):
     }
 
 
-def plot_penny(df, add_freq_trace=True, add_emp_update_trace=True, add_update_trace=True):
-    required_columns = ["alpha", "beta"]
-    optional_columns = {
-        "freq_trace": ["freq_alpha", "freq_beta"],
-        "emp_update_trace": ["alpha_emp_update", "beta_emp_update"],
-        "update_trace": ["update_alpha", "update_beta"],
-    }
+def plot_penny(df):
+    states = df["state"].unique()
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    for i, state in enumerate(states):
+        row = i // 2
+        col = i % 2
+        state_data = df[df["state"] == state]
 
-    ax.plot(
-        df["alpha"],
-        df["beta"],
-        marker="o",
-        linestyle="-",
-        color="b",
-        label="After update",
-        alpha=0.7,
-    )
-
-    if add_freq_trace and all(
-        col in df.columns for col in optional_columns["freq_trace"]
-    ):
-        ax.plot(
-            df["freq_alpha"],
-            df["freq_beta"],
-            marker="o",
-            linestyle="--",
-            color="g",
-            label="Mean models",
-            alpha=0.7,
+        axs[row, col].plot(
+            state_data["alpha"], state_data["beta"], label="Alpha vs Beta", marker="o"
+        )
+        axs[row, col].plot(
+            state_data["alpha_freq"],
+            state_data["beta_freq"],
+            label="Alpha_freq vs Beta_freq",
+            marker="x",
         )
 
-    if add_emp_update_trace and all(
-        col in df.columns for col in optional_columns["emp_update_trace"]
-    ):
-        ax.plot(
-            df["alpha_emp_update"],
-            df["beta_emp_update"],
-            marker="o",
-            linestyle="--",
-            color="r",
-            label="Empirical updates",
-            alpha=0.7,
-        )
+        axs[row, col].set_title(f"State {state}")
+        axs[row, col].set_xlabel("Alpha / Alpha_freq")
+        axs[row, col].set_ylabel("Beta / Beta_freq")
+        axs[row, col].set_xlim(0, 1)
+        axs[row, col].set_ylim(0, 1)
+        axs[row, col].legend()
+        axs[row, col].grid(True)
 
-    if add_update_trace and all(
-        col in df.columns for col in optional_columns["update_trace"]
-    ):
-        ax.plot(
-            df["update_alpha"],
-            df["update_beta"],
-            marker="o",
-            linestyle="--",
-            color="purple",
-            label="Update alpha model",
-            alpha=0.7,
-        )
+    # Hide the empty subplot if the number of states is less than 4
+    if len(states) < 4:
+        fig.delaxes(axs[1, 1])
 
-    ax.set_xlabel("Alpha")
-    ax.set_ylabel("Beta")
-    ax.set_title("2D Line Plot of Alpha vs Beta")
-    ax.legend()
-    ax.grid(True)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-
+    plt.tight_layout()
     return fig
 
 
 def turn_to_penny_df(logged_metrics):
-    float_dicts = []
-    for dictionary in logged_metrics:
-        float_dicts.append({key: val.item() for key, val in dictionary.items()})
-
-    return pd.DataFrame(float_dicts).rename(
-        columns={
-            "model_1_Even": "alpha",
-            "model_2_Even": "beta",
-            "freq_model_1_Even": "freq_alpha",
-            "freq_model_2_Even": "freq_beta",
-            "upd_model_1_Even": "update_alpha",
-            "upd_model_2_Even": "update_beta",
-            "model_1_emp_Even": "alpha_emp_update",
-            "model_2_emp_Even": "beta_emp_update",
-            "model1_is_winning": "m1_winning",
-            "model2_is_winning": "m2_winning",
-            "old_model_1_Even": "old_alpha",
-            "old_model_2_Even": "old_beta",
-        }
-    )[
-        [
-            "alpha",
-            "beta",
-            "old_alpha",
-            "old_beta",
-            "freq_alpha",
-            "freq_beta",
-            "alpha_emp_update",
-            "beta_emp_update",
-            "update_alpha",
-            "update_beta",
-            "m1_winning",
-            "m2_winning",
-            "epoch",
-        ]
-    ]
+    state_records = []
+    for metric in logged_metrics:
+        epoch = int(metric["epoch"])
+        unflattened_metric = unflatten_dict(metric)
+        for player in [1, 2]:
+            policy = "alpha" if player == 1 else "beta"
+            alphas = [
+                {
+                    "state": s,
+                    "player": player,
+                    "policy": policy,
+                    "policy_even": float(
+                        unflattened_metric[f"model_{player}"][str(s)]["Even"]
+                    ),
+                    "actual_even_play": float(
+                        unflattened_metric[f"play_hist{player}"][str(s)][policy]
+                    ),
+                    "regret_update_even": float(
+                        unflattened_metric[f"emp_regret_{player}"][str(s)]["Even"]
+                    ),
+                    "regret_update_odd": float(
+                        unflattened_metric[f"emp_regret_{player}"][str(s)]["Odd"]
+                    ),
+                    "regret_even_trained": float(
+                        unflattened_metric[f"q_values_{player}"][str(s)]["Even"]
+                    ),
+                    "regret_odd_trained": float(
+                        unflattened_metric[f"q_values_{player}"][str(s)]["Odd"]
+                    ),
+                    "epoch": epoch,
+                }
+                for s in [1, 2, 3]
+            ]
+            state_records.extend(alphas)
+    df = pd.DataFrame.from_records(state_records)
+    return (
+        df.assign(
+            mean_policy=lambda x: x.groupby(["state", "player"]).policy_even.transform(
+                "cumsum"
+            )
+            / (x.groupby(["state", "player"]).policy_even.transform("cumcount") + 1),
+            even_mean_regret=lambda x: x.groupby(
+                ["state", "player"]
+            ).regret_update_even.transform("cumsum")
+            / (
+                x.groupby(["state", "player"]).regret_update_even.transform("cumcount")
+                + 1
+            ),
+            odd_mean_regret=lambda x: x.groupby(
+                ["state", "player"]
+            ).regret_update_odd.transform("cumsum")
+            / (
+                x.groupby(["state", "player"]).regret_update_odd.transform("cumcount") + 1
+            ),
+        )
+        .assign(even_train_diff=lambda x: x.even_mean_regret - x.regret_even_trained)
+        .assign(odd_train_diff=lambda x: x.odd_mean_regret - x.regret_odd_trained)
+        .assign(
+            policy_error=lambda x: np.logical_or(
+                np.sign(x.even_mean_regret) != np.sign(x.regret_even_trained),
+                np.sign(x.odd_mean_regret) != np.sign(x.regret_odd_trained),
+            )
+        )
+    )
 
 
 class PennyReservoir:
@@ -447,3 +441,50 @@ class PennyReservoir:
             if file.endswith(".pq"):
                 os.remove(self.file_folder / file)
         self.generate_summary()
+
+
+def invert_payout_dictionary(payout_dictionary):
+    return {
+        state: (opp_payout, payout)
+        for state, (payout, opp_payout) in payout_dictionary.items()
+    }
+
+
+def get_empirical_ratios(states, descriptor):
+    emps = empirical_frequencies([(s.state_label, s.self_action) for s in states])
+    return {
+        s: {
+            descriptor: emps.get((s, "Even"), 0)
+            / (emps.get((s, "Even"), 0) + emps.get((s, "Odd"), 0))
+        }
+        for s in [1, 2, 3]
+    }
+
+
+def get_empirical_regrets(states):
+    state_summaries = pd.DataFrame(
+        [
+            {"state": s.state_label, "regret": s.regret, "choices": s["my_hand"].choices}
+            for s in states
+        ]
+    )
+    aggs = (
+        state_summaries.assign(choice_0=lambda x: x.choices.apply(lambda y: y[0]))
+        .assign(regret_0=lambda x: x.regret.apply(lambda y: float(y[0][0])))
+        .assign(regret_1=lambda x: x.regret.apply(lambda y: float(y[1][0])))
+        .drop(columns=["regret", "choices"])
+        .assign(
+            regret_even=lambda x: np.where(x.choice_0 == "Even", x.regret_0, x.regret_1)
+        )
+        .assign(
+            regret_odd=lambda x: np.where(x.choice_0 == "Odd", x.regret_0, x.regret_1)
+        )
+        .drop(columns=["choice_0", "regret_0", "regret_1"])
+        .rename(columns={"regret_even": "Even", "regret_odd": "Odd"})
+        .melt(id_vars="state", var_name="choice", value_name="regret")
+        .assign(state_choice=lambda x: x.state.astype(str) + "." + x.choice)
+        .groupby(["state_choice"], as_index=False)
+        .agg(regret=("regret", "mean"))
+        .to_dict("records")
+    )
+    return {rec["state_choice"]: round(rec["regret"], 3) for rec in aggs}

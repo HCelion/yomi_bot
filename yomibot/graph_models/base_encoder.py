@@ -244,7 +244,7 @@ class PennyPolicyActorModel(nn.Module):
 
         self.softmax = nn.Softmax(dim=1)
 
-        # self._initialize_policy_head()
+        self._initialize_policy_head()
 
     def _initialize_policy_head(self):
         # Initialize weights to zero and biases to zero
