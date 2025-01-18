@@ -1,4 +1,4 @@
-from src.rps.rps_deck import rps_cards
+from yomibot.rps.rps_deck import rps_cards
 
 
 def determine_suit_winner(left_suit, right_suit, order=["left", "right"]):

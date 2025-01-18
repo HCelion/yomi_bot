@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>new_yomi_approach</title>
+  <style>
+    html {
+      line-height: 1.5;
+      font-family: Georgia, serif;
+      font-size: 20px;
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 1em;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, 'Lucida Console', Consolas, monospace;
+      font-size: 85%;
+      margin: 0;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <script
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
+  type="text/javascript"></script>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<h2 id="approximating-nash-equilibria-through-play">Approximating Nash
+equilibria through play</h2>
+<p>The trouble with the previous approach was in finding good nash
+equilibrium solvers that can solve large state spaces (&gt;10 cards)
+quickly.</p>
+<p>Instead, we try to approximate something like a Nash equilibrium by
+letting pairs of models play against each other and optimising their
+strategy mutually and hope that the outcome is close enough to a true
+equilibrium state while taking into account the lack of complete
+information. This should be possible, see for example <a
+href="https://openreview.net/pdf?id=cc8h3I3V4E">this paper</a>. This
+means a player does not try to simulate the state of the opponents mind
+explicitly, but rather this information is captured by the model.</p>
+<p>In this new approach, just like in the old one , we try to
+approximate the payout function by training a model to predict given a
+game state <span class="math inline">\(s\)</span> what the chance of a
+win is <span class="math inline">\(X=1\)</span>,</p>
+<p><span class="math display">\[P(X=1|s,\pi_{\mbox{self}}
+,\pi_{\mbox{other}}) = f(s) \approx \bar{f}(s)\]</span></p>
+<p>where <span class="math inline">\(\pi_{\mbox{self}}
+,\pi_{\mbox{other}}\)</span> are the policies of both players, <span
+class="math inline">\(\bar{f}(s)\)</span> is the estimator we want to
+train and <span class="math inline">\(s\)</span> is the complete state
+containing all the knowledge of the player, such as identity of own
+cards, number of opponent cards, identity of known opponent cards, hp
+and status effects. Such a model is straightforward to train if the
+opponent policy stays constant.</p>
+<p>We will also need a policy network (though for the full yomi game
+more, to model the actions to take for other actions, such as exchanges,
+boosting combos and pumping play, and other non–cardplay actions). Such
+a model should return a probability distribution over the available
+actions (card plays) <span
+class="math inline">\(\mathcal{A}\)</span></p>
+<p><span class="math display">\[P(a| s, \pi_{\mbox{self}}
+,\pi_{\mbox{other}}), a \in \mathcal{A} = g(a,s) =
+\bar{\mathbf{g}}(s),\]</span> where <span
+class="math inline">\(\bar{\mathbf{g}}\)</span> is a distribution over
+the action space. How would such a model be trained?</p>
+<p>As we play, we sample from the action distribution and could punish
+or reward the model based on the outcome of that particular interaction.
+That would however be wasteful, as the model would not have made use of
+the actions in would not have chosen.</p>
+<p>Instead, we can map for each action taken and the actual action <span
+class="math inline">\(z\)</span> by the other player, how the state
+would have evolved</p>
+<p><span class="math display">\[ \begin{array}{c} s + z + a_1
+\rightarrow s_1  \\
+s + z + a_2 \rightarrow s_2 \\
+\vdots \\
+s + z + a_n \rightarrow s_n
+\end{array}\]</span></p>
+<p>While in principle we don’t know whether which of these states is
+best, we can let the previous model decide. We could define a reward
+vector in such a way</p>
+<p><span class="math display">\[\mathbf{f}: \mathbf{f}_i = \bar{f}(s_i)
+- \bar{f}(s),\]</span></p>
+<p>or any other monotenous function of the difference, such as</p>
+<p><span class="math display">\[\mathbf{f}: \mathbf{f}_i = \log
+\bar{f}(s_i) - \log \bar{f}(s),\]</span></p>
+<p>One objective could be to maximise the expected reward</p>
+<p><span class="math display">\[ \max  \bar{\mathbf{f}}(s)^T
+\bar{\mathbf{g}}(s) ,\]</span></p>
+<p>or</p>
+<p><span class="math display">\[L = -
+\bar{\mathbf{f}}(s)^T  \bar{\mathbf{g}}(s) ,\]</span></p>
+<p>which can naturally be batched over different iteration situations
+<span class="math inline">\(s\)</span>. Having 2 models here is actually
+a benefit, since the errors of the models are independent, and so the
+gradient should be unbiased.</p>
+<p>The research in <a
+href="https://openreview.net/pdf?id=cc8h3I3V4E">this paper</a> suggests
+that there is benefit, despite there being a different setup due to the
+unknown nature of the opponents action choices, to align the gradient
+with the tangent space to the simplex <span class="math inline">\(\sum
+g_i(s) = 1\)</span>. If we have <span class="math inline">\(m\)</span>
+actions available, we can project using a projection operator</p>
+<p><span class="math display">\[\Pi = \mathbf{I}_m -
+\frac{1}{m}\mathbf{1}_m \mathbf{1}_m^T.\]</span></p>
+<p>Since <span class="math inline">\(\Pi = \Pi^T = \Pi^2\)</span> we can
+modify the loss to be any of</p>
+<p><span class="math display">\[L = -
+(\Pi\bar{\mathbf{f}}(s))^T  \bar{\mathbf{g}}(s)  =  -
+\bar{\mathbf{f}}(s)^T  (\Pi\bar{\mathbf{g}}(s)) = -
+(\Pi\bar{\mathbf{f}}(s))^T (\Pi\bar{\mathbf{g}}(s)), \]</span></p>
+<p>which would suggest that the gradient of the loss with respect to the
+parametrisation of <span class="math inline">\(\bar{\mathbf{g}}\)</span>
+would be a projection as well and leave the simplex intact (though the
+model itself would naturally renormalise the outputs to sum to 1).</p>
+<h2 id="regret-based-approach">Regret based approach</h2>
+<p>While the above reasoning seems in principle sound, in practice the
+resulting equilibria are not stable, as small mismatches in the hyper
+parameters lead to over controlling and oscillating behaviour in the
+space of play.</p>
+<p>Instead, we can try for the model to predict the regret per action
+taken</p>
+<p><span class="math display">\[R(a) =  r(a) - r^*,\]</span> where <span
+class="math inline">\(r^*\)</span> is the reward under the best of the
+available actions and <span class="math inline">\(r(a)\)</span> is the,
+potentially counterfactual, reward we got for that action. Normally
+these are added together per action and the strategy of a player updates
+as</p>
+<p><span class="math display">\[P(a) = \frac{\max(R(a),0)}{\sum_{a&#39;}
+\max(a,R(a&#39;))}.\]</span></p>
+<h2 id="wolf-learning">WOLF learning</h2>
+<p>The problem with the raw regret and performance based update schemes
+is that the models tend to overshot in training and the strategies do
+not converge to the Nash equilibrium. Instead, we will use the WOLF
+strategy, which stands for <em>Win Or Learn Fast</em>. The idea is that
+if to keep an average of the historic stategies in memory and compare
+them to the current strategy. If the current strategy performs better,
+the update step slows down, otherwise it grows. That change in dynamics
+is enough to force the Nash equilibrium.</p>
+<p>In particular, there are two update speeds, one for winning <span
+class="math inline">\(\delta_w\)</span> and one for losing <span
+class="math inline">\(\delta_l\)</span>, with <span
+class="math inline">\(\delta_l &gt; \delta_w\)</span>. Further there is
+an update parameter <span class="math inline">\(\alpha\)</span>. At any
+given state <span class="math inline">\(s\)</span>, we try to measure
+the value of each available action <span class="math inline">\(a\in
+\mathcal{A}.\)</span></p>
+<p>If we know the transition function <span class="math inline">\(T(s,a)
+\rightarrow s&#39;\)</span>, we can update for each action (even the
+unobserved ones, since we know the counterfactual transitions
+<code>s'_{a}</code> and the counterfactual rewards <span
+class="math inline">\(r_a\)</span>).</p>
+<p>We play according to a randomly instantiated policy <span
+class="math inline">\(\pi(s,a)\)</span></p>
+<p><span class="math display">\[Q(s,a) = (1-\alpha)\,Q(s,a) + \alpha
+\left( r_a  + \gamma Q(s&#39;_a)\right).\]</span></p>
+<p>In addition, for each state <span class="math inline">\(s\)</span> we
+calculate the actually observed action <span
+class="math inline">\(a_{obs}\)</span></p>
+<p><span class="math display">\[C(s, a_{obs}) += 1.\]</span></p>
+<p>We can use these counts to keep track of our historical average
+strategy</p>
+<p><span class="math display">\[\bar{\pi}(s,a)  =  \frac{C(s, a)}{\sum_a
+C(s,a)}\]</span></p>
+<p>When we observe the other players reaction and the rewards and
+consequences of all the actions we could have played according to our
+strategy, we can try to establish which, <span
+class="math inline">\(\pi(s,a)\)</span> or <span
+class="math inline">\(\bar{\pi}(s,a)\)</span> is better, by averaging
+over the expected value in state <span
+class="math inline">\(s\)</span></p>
+<p><span class="math display">\[V_{\pi}(s) = \sum_a \pi(s,a)
+Q(s,a).\]</span></p>
+<p>If <span class="math inline">\(V_{\pi}(s) &gt;
+V_{\bar{\pi}}\)</span>, i.e. our current strategy is better than the
+historic average, we use <span class="math inline">\(\delta =
+\delta_w\)</span>, otherwise we use <span class="math inline">\(delta =
+\delta_l &gt; \delta_w\)</span>. We update the action that maximises the
+new value function</p>
+<p><span class="math display">\[a_{max} = \max_{a} Q(s,a)\]</span></p>
+<p>Then</p>
+<p><span class="math display">\[\pi_{s,a_{max}} = \pi_{s,a_{max}} +
+\delta\]</span> and all other actions get reduced in likelihood, whereas
+probability mass is taken equally from all non-maximising actions</p>
+<p><span class="math display">\[\pi_{s,a} = \pi_{s,a} -
+\frac{\delta}{|A|-1}.\]</span></p>
+<p>Also we have to clip and normalise to guarantee a correct probability
+distribution for <span class="math inline">\(\pi(s,a)\)</span>, since
+updates can in principle push <span
+class="math inline">\(\pi(s,a)\)</span> outside the region <span
+class="math inline">\([0,1]\)</span>. Because we constantly compare to
+the average value of the long term strategy, when we are doing well, we
+lower the learning rate and stay closer to the true equilibrium
+value.</p>
+<h2 id="wolf-in-deeper-models">WOLF in deeper models</h2>
+<p>For derivations, look <a
+href="https://www.cs.cmu.edu/~mmv/papers/02aij-mike.pdf">here</a></p>
+<p>If we want to roll out the Wolf strategy to a fuller problem, such as
+Yomi, we run into some problems. For once, the state space <span
+class="math inline">\(\mathcal{S}\)</span> can become very large and
+there is some structure in it, so it would be reasonable to expect that
+nearby states to <span class="math inline">\(s\)</span>, for example
+with similar but not exactly the same cards and enemies, we can improve
+on learning. Our goal is to fomulate the problem such that our state
+space dependence is handled by a deep model. All counts and states that
+are indexed by <span class="math inline">\(s\)</span> will now be
+handled by a model. These are <span class="math inline">\(Q(s,a),
+\bar{\pi}(s,a)\)</span> and <span
+class="math inline">\(\pi(s,a).\)</span> We now need to find loss
+functions for these such that we can train a model on it. As before we
+assume we know the rewards, which are trained functions <span
+class="math inline">\(V\)</span> of the value of the transition <span
+class="math inline">\(s \rightarrow s&#39;\)</span>.</p>
+<p>For the average policy, we can just use the actually played actions
+as target for new pairs of <span class="math inline">\(s,a\)</span></p>
+<p><span class="math display">\[L_{\mathbf{\bar{\pi}}} =
+\mbox{LogLoss}(\mathbf{\bar{\pi}}(s), \mathbf{1}_a)\]</span> where <span
+class="math inline">\(\mathbf{1}_a\)</span> is a vector that is <span
+class="math inline">\(1\)</span> for the observed action and zero
+otherwise.</p>
+<p>For the action value function <span
+class="math inline">\(Q(s,a)\)</span> we can use the counterfactual
+loss</p>
+<p><span class="math display">\[L_{Q(s,a)} = (Q(s,a)- (\mathbf{r} +
+\gamma V(\mathbf{s&#39;})))^T\cdot(Q(s,a)- (\mathbf{r} + \gamma
+V(\mathbf{s&#39;}))),\]</span></p>
+<p>where <span class="math inline">\(V(\mathbf{s&#39;})\)</span> is our
+model to predict the winningness of a state applied to all <span
+class="math inline">\(s&#39;\)</span> that follow from <span
+class="math inline">\(s+a&#39;=s&#39;\)</span> over all available
+actions at <span class="math inline">\(s\)</span>. In particular for the
+Yomi game, we might actually want to set <span
+class="math inline">\(\mathbf{r} = 0, \gamma=1\)</span> and purely
+optimise for the value of the next game states, since the only true
+reward is winning or losing.</p>
+<p>Lastly we need the loss for the actual policy. If the actual policy
+is in a losing state compared to the long term average, then the loss
+should be larger to accelerate policy movement according to the WoLF
+principle.</p>
+<p><span class="math display">\[L_{\pi(s,a)} =
+\mbox{sigmoid}(\mathbf{Q(s)}\cdot \left(\mathbf{\bar{\pi}}(s) -
+\mathbf{\pi}(s)\right) )
+\mbox{LogLoss}(\mathbf{\pi}(s),\mathbf{Q_{\mbox{max}}} ),\]</span></p>
+<p>where <span class="math inline">\(\mathbf{Q_{\mbox{max}}} =
+1/|A_{max}|\)</span> for all actions <span
+class="math inline">\(A_{max}\)</span> that maximise <span
+class="math inline">\(\mathbf{Q}(s,a)\)</span> and zero otherwise. The
+<span class="math inline">\(\mathbf{\pi}(s)\)</span> should not
+contribute to the gradient though, it is just accentuating the loss.</p>
+<p>An alternative approach for the loss is to get rid of the estimation
+of <span class="math inline">\(Q(s,a)\)</span> altogher and use the
+counterfactual payoffs <span class="math inline">\(\mathbf{r}\)</span>
+as target</p>
+<p><span class="math display">\[L_{\pi(s,a)} =
+\mbox{sigmoid}(\mathbf{r}\cdot \left(\mathbf{\bar{\pi}}(s) -
+\mathbf{\pi}(s)\right)) \, \mathbf{r}\cdot \mathbf{\pi}(s).\]</span></p>
+<p>The sigmoid term can be replaced with any other function that assigns
+higher learnign rate to losing configurations, for example the the step
+function between <span class="math inline">\(\delta_{min}\)</span> and
+<span class="math inline">\(\delta_{max}\)</span> as in the non-gradient
+version.</p>
+<h2 id="lola-approach">LOLA approach</h2>
+<p>For derivations, look <a
+href="https://arxiv.org/pdf/1709.04326">here</a></p>
+<h2 id="baselined-policy-learning">Baselined policy learning</h2>
+<p>One way to train a policy model <span
+class="math inline">\(\pi_theta(a|s)_\theta\)</span> is to use the
+actor-critic approach. We train a separate value model <span
+class="math inline">\(V_{\phi}(s)\)</span> separately to improve on the
+loss.</p>
+<p>We let <span class="math inline">\(M\)</span> episodes run until each
+finished at time <span class="math inline">\(T\)</span>. For each data
+point we can introduce the time horizon <span
+class="math inline">\(n\)</span>, the discount factor <span
+class="math inline">\(\gamma\)</span>. The for each episode in <span
+class="math inline">\(M\)</span> we simulate the trace <span
+class="math display">\[\tau = \{s_0, a_0, r_0, s_1, \dots,
+s_T\}.\]</span> For each state alongside the trace we approximate the
+bootstrapped value</p>
+<p><span class="math display">\[\hat{Q}_n(s_t, a_t) =
+\sum_{k=0}^{n-1}\gamma^k\cdot r_{t+k} + \gamma^n
+V_{\phi}(s_{t+n})\]</span></p>
+<p>and the bootstrapped advantage</p>
+<p><span class="math display">\[\hat{A}_n(s_t, a_t) = \hat{Q}_n(s_t,
+a_t) - V(s_t)\]</span></p>
+<p>We can then update the networks with the gradients</p>
+<p><span class="math display">\[ \begin{split}
+\phi \rightarrow \phi - \alpha \nabla_{\phi} \sum_t (\hat{Q}_n(s_t, a_t)
+- V(s_t))^2 \\
+\theta_t \rightarrow \theta - \alpha \nabla_{\theta}  \sum_t
+\left[\hat{A}_n(s_t, a_t)\log \phi_\theta(a_t|s_t)\right]
+\end{split}
+\]</span></p>
+<p>Of course, for rock paper scissors it makes sense to discount
+completely <span class="math inline">\(\gamma=1\)</span> such that</p>
+<p><span class="math display">\[\hat{Q}_n(s_t, a_t) = \hat{Q}(s_t, a_t)
+= r_t\]</span></p>
+<h2 id="deep-wolf">Deep WolF</h2>
+<p>Applying Wolf naively to a deep setting did not bring the results
+that were wished. However, the principal approach is sensible. The paper
+<a href="https://arxiv.org/pdf/1603.01121">here</a> has an approach
+based on the observation that strategies <span
+class="math inline">\(\sigma\)</span> can be mixed</p>
+<p><span class="math display">\[\sigma_3 = \lambda_1 \sigma_1 +
+\lambda_2 \sigma_2\]</span></p>
+<p>with <span class="math inline">\(\lambda_1 + \lambda_2 = 1\)</span>.
+Thus a policy could first decide via a random throw of the die which
+strategy to follow in the next episode, and then run it. In the above
+paper <span class="math inline">\(\sigma_1\)</span> was tracking the
+historical average policy <span class="math inline">\(\Pi,\)</span>
+whereas <span class="math inline">\(\sigma_2\)</span> followed an
+Q-action model <span
+class="math inline">\(\epsilon\)</span>-greedily.</p>
+<p>One drawback of that method is that the mixing does not happen on the
+model level, but instead on a policy level. The greedy function returns
+pure predictions most of the time.</p>
+<p>To get around this, one observation is that in reinforcement settings
+there is a model-data equivalence in the limit of large data being
+generated in each play through. Models are trained on past data, create
+new data through self play, and the next generation of models is trained
+on that new data.</p>
+<p>So rather than mixing on the policy stage, we can mix data generated
+by different processes together in different ratios for the next
+generation of model being trained.</p>
+<p>Let <span class="math inline">\(\Pi_i(\theta)\)</span> be a
+historical average model of player <span
+class="math inline">\(i\)</span>. Let <span
+class="math inline">\(\pi_i\)</span> and alternative model. Let us for
+the moment assume that the state <span class="math inline">\(s\)</span>
+of the system is static, i.e. it is a pure matrix game. Let <span
+class="math inline">\(H_1\)</span> be a history of self-play of the old
+model given by the list of tuples <span class="math inline">\((s, r, a,
+s&#39;)\)</span> in the standard notation. From that history we can
+extract a approximate history <span
+class="math inline">\(\hat{\Pi}(s)\)</span>. Similarly, we can generate
+an approximate history <span class="math inline">\(\hat{\pi}(s)\)</span>
+from <span class="math inline">\(H_2\)</span> as generated by <span
+class="math inline">\(\pi\)</span>. Clearly, if we generate <span
+class="math inline">\(N_1\)</span> sample of <span
+class="math inline">\(\Pi\)</span> and <span
+class="math inline">\(N_2\)</span> sample of <span
+class="math inline">\(\pi\)</span>, the generated sample will have an
+effective strategy</p>
+<p><span class="math display">\[\sigma(s) = \frac{N_1}{N_1+N_2}\Pi(s) +
+\frac{N_2}{N_1+N_2}\pi(s).\]</span></p>
+<p>And an average policy model trained on that sample should follow
+<span class="math inline">\(\sigma(s)\)</span> approximately.</p>
+<p>Rewriting this as</p>
+<p><span class="math display">\[ \sigma \approx \Pi + \delta
+\pi,\]</span> where <span class="math inline">\(\delta =
+\frac{N_2}{N_1}\)</span>. The sample mixing ratio approximates a
+learning rate of a policy.</p>
+<p>In WoLF learning, we keep track of an average strategy and the
+current best strategy. If the current best strategy is losing compared
+to the average strategy, the learning rate <span
+class="math inline">\(\delta\)</span> is increased to <span
+class="math inline">\(\delta_L\)</span> and otherwise is reduced to
+<span class="math inline">\(\delta_W &lt; \delta_L\)</span>.</p>
+<p>Similarly in deep Wolf, we have a current best model <span
+class="math inline">\(\pi\)</span> and an average model <span
+class="math inline">\(\Pi\)</span>. We generate <span
+class="math inline">\(N_{update}\)</span> samples of reinforcement and
+train an updated policy <span
+class="math inline">\(\pi_{\mbox{update}}\)</span>. We also run <span
+class="math inline">\(N_{eval} = N_{update}\)</span> runs against the
+average policy model <span class="math inline">\(\Pi\)</span>. We can
+then compare the utilities of <span class="math inline">\(\pi\)</span>
+and <span class="math inline">\(\Pi\)</span> on <span
+class="math inline">\(N_{update}\)</span> and <span
+class="math inline">\(N_{eval}\)</span> respectively. If the current
+model is better than <span class="math inline">\(\Pi\)</span>, we can
+create a smaller <span class="math inline">\(N_w\)</span> using <span
+class="math inline">\(\pi_{\mbox{update}}\)</span>., if we are losing,
+we take a larger sample <span class="math inline">\(N_w\)</span>. We
+then mix the samples of <span class="math inline">\(N_{update}\)</span>
+and <span class="math inline">\(N_{w/l}\)</span>, and train a new model
+<span class="math inline">\(\pi&#39;\)</span> based off that. <span
+class="math inline">\(N_{update}\)</span> can be added to a large buffer
+to then update <span class="math inline">\(\Pi&#39;\)</span>. this gives
+the effective <span class="math inline">\(\delta_{l/w} =
+N_{l,w}/N_{\mbox{update}}\)</span>.</p>
+<p><span class="math display">\[
+\begin{array}{l}
+\textbf{Hyperparameters:} N_{update}, N_L &gt; N_W \text{ as integers}
+\\
+\text{For each player } i :\\
+\quad \text{Initialize } \pi_\theta(s) \text{ best policy arbitrarily}
+\\
+\quad \text{Initialize } \Pi_{\theta&#39;}(s) \text{ average policy
+arbitrarily} \\
+\quad \text{Initialize } V_{\theta&#39;&#39;}(s) \text{ valuation
+network} \\
+\quad \text{Initialize } L \text{ circular long term buffer} \\
+\quad \text{Initialize } S \text{ short term buffer} \\
+\text{Until convergence:}\\
+\text{Empty } S \\
+\text{For } i = 1, N_{update}\text{ :} \\
+\quad \text{Initialize state } s_{0} \\
+\quad \textbf{while }   s_t \text{ not terminal:} \\
+\quad \quad \text{Choose action } a \text{ from state } s_t \text{ using
+policy derived from } \pi_{\theta}(s_t) \\
+\quad \quad \text{Take action } a, \text{ observe reward } r \text{ and
+next state } s_{t+1} \\
+\quad \quad \text{ store } s,a, s_{t+1} \text{ in } L \\
+\quad \quad \text{ store } s,a \text{ in } S \\
+\quad \quad \textbf{end while}\\
+\quad \text{Calculate bootstrapped rewards } \hat{Q}_n(s_t, a_t) =
+\sum_{k=0}^{n-1}\gamma^k\cdot r_{t+k} + \gamma^n
+V_{\theta&#39;&#39;}(s_{t+n}) \\
+\quad \text{Calculate Advantages } A(s_t) =\hat{Q}_n(s_t, a_t) - V(s_t)
+\\
+\text{Train } \pi&#39; \text{ by minimising }  L= -\sum  A(s_t) \log
+p&#39;(a|s_t) \\
+\text{Calculate mean utility } u_{\pi} \text{ from the } N_{update}
+\text{ sample } \\
+\text{Play } N_{update} \text{ episodes using }\Pi \text{ and calculate
+utility } u_{\Pi} \\
+\text{If } u_\pi &gt; u_{\Pi} \text{ set } N_{next} = N_{W} \text{
+otherwise } N_{L}\\
+\text{Generate } N_{next} \text{ plays with policy } \pi&#39; \text{
+storing each observation } s,a \text{ in } S \\
+\text{Train } \pi&#39;&#39; \text{ on samples from } S \text{ to
+minimize } L = - \sum \mathbb{I}_{a_t} \log\pi&#39;&#39;(a_t|s_t) \\
+\text{Set } \pi \leftarrow \pi&#39;&#39;  \\
+\text{Retrain } \Pi \text{ on samples from } L
+\end{array}
+\]</span></p>
+</body>
+</html>

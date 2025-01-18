@@ -3,18 +3,43 @@ name = "yomi_bot"
 version = "0.1.0"
 description = "A set of bots to learn competitive card play"
 authors = ["Arvid J. Kingl <akingl2016@gmail.com>"]
+packages = [
+    { include = "yomibot"},
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"
 pytest = "^7.1.2"
 pandas = "^1.4.2"
 numpy = "^1.22.4"
-pygambit = "^16.0.2"
 matplotlib = "^3.5.2"
 black = "^22.3.0"
+torch = "^2.4.0"
+pytorch-lightning = "^2.3.3"
+torch-geometric = "^2.5.3"
+nashpy = "^0.0.41"
+python-ternary = "^1.0.8"
+tensorboard = "^2.18.0"
+fastparquet = "^2024.11.0"
 
 [tool.poetry.dev-dependencies]
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+pre-commit = "^3.8.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+line-length = 90
+exclude = ["tests/", "*/__init__.py"]
+
+[tool.ruff.lint]
+unfixable = ["F401"]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = false
+exclude = ["tests/"]
