@@ -9,7 +9,7 @@ from pylab import mpl, plt
 from pytorch_lightning.callbacks import ModelCheckpoint
 from yomibot.common.paths import data_path
 from yomibot.data.card_data import PennyData
-from yomibot.data.helpers import flatten_dict, unflatten_dict
+from yomibot.data.helpers import unflatten_dict
 
 checkpoint_callback = ModelCheckpoint(save_top_k=0)
 
@@ -261,36 +261,39 @@ def empirical_frequencies(list_items):
     }
 
 
-def plot_penny(df):
-    states = df["state"].unique()
-    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+def plot_penny(df, optima):
+    from pylab import plt
+
+    plt.style.use("bmh")
+    mpl.rcParams["font.family"] = "serif"
+    states = [1, 2, 3]
+    fig, axs = plt.subplots(3, 1, figsize=(6, 12))
 
     for i, state in enumerate(states):
-        row = i // 2
-        col = i % 2
-        state_data = df[df["state"] == state]
+        row = i
 
-        axs[row, col].plot(
-            state_data["alpha"], state_data["beta"], label="Alpha vs Beta", marker="o"
+        state_df = (
+            df.pivot(index=["state", "epoch"], columns="policy", values="mean_policy")
+            .reset_index()
+            .query(f"state == {state}")
         )
-        axs[row, col].plot(
-            state_data["alpha_freq"],
-            state_data["beta_freq"],
-            label="Alpha_freq vs Beta_freq",
+
+        axs[row].plot(
+            state_df["alpha"], state_df["beta"], label="Alpha vs Beta", marker="."
+        )
+        axs[row].scatter(
+            optima[state]["Rock"],
+            optima[state]["Rock"],
+            color="red",
+            label="Nash Equilibrium",
             marker="x",
         )
-
-        axs[row, col].set_title(f"State {state}")
-        axs[row, col].set_xlabel("Alpha / Alpha_freq")
-        axs[row, col].set_ylabel("Beta / Beta_freq")
-        axs[row, col].set_xlim(0, 1)
-        axs[row, col].set_ylim(0, 1)
-        axs[row, col].legend()
-        axs[row, col].grid(True)
-
-    # Hide the empty subplot if the number of states is less than 4
-    if len(states) < 4:
-        fig.delaxes(axs[1, 1])
+        axs[row].set_title(f"State {state}")
+        axs[row].set_xlabel("Alpha")
+        axs[row].set_ylabel("Beta")
+        axs[row].set_xlim(0, 1)
+        axs[row].set_ylim(0, 1)
+        axs[row].grid(True)
 
     plt.tight_layout()
     return fig
@@ -420,7 +423,7 @@ class PennyReservoir:
             )
             all_samples = []
             for file_name, data in sampled_files.groupby("file_name"):
-                files_to_keep = data.file_index
+                files_to_keep = data.file_index  # noqa F841
                 sample = pd.read_parquet(self.file_folder / file_name).query(
                     "file_index.isin(@files_to_keep)"
                 )

@@ -1,17 +1,8 @@
-import math
-from time import time
 from copy import deepcopy
-import pandas as pd
 import logging
 import numpy as np
 import random
 from torch_geometric.data import Batch
-from torch.nn.functional import (
-    mse_loss,
-    softmax,
-    sigmoid,
-    binary_cross_entropy_with_logits,
-)
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch
@@ -19,48 +10,18 @@ from torch import optim
 from torch_geometric.transforms import ToUndirected
 from torch_geometric.utils import to_dense_batch
 from torch_geometric.loader import DataLoader
-from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
-    EarlyStopping,
-)
-from pytorch_lightning.loggers import TensorBoardLogger
 from yomibot.graph_models.base_encoder import (
-    RPSHandChoiceModel,
-    RPSPolicyActorModel,
     PennyPolicyActorModel,
 )
 from yomibot.graph_models.helpers import (
-    CosineWarmupScheduler,
-    MetricsCallback,
-    plot_model_history,
-    plot_model_history_ternary,
-    parse_log_item,
-    plot_model_history_with_mse,
-    parse_freq_log_item,
     checkpoint_callback,
-    empirical_frequencies,
     get_empirical_ratios,
     get_empirical_regrets,
-    turn_to_penny_df,
-    plot_penny,
     PennyReservoir,
-    invert_payout_dictionary
+    invert_payout_dictionary,
 )
-from yomibot.data.helpers import flatten_dict, unflatten_dict
-from yomibot.data.card_data import generate_rps_sample, generate_penny_sample, CardDataset
-from yomibot.common import paths
-from yomibot.data.card_data import (
-    rps_non_standard_payout,
-    rps_standard_payout,
-    rps_non_standard_payout_opponent,
-    penny_standard_payout,
-    penny_opponent_standard_payout,
-    penny_non_standard_payout,
-    penny_non_standard_payout_opponent,
-    penny_even_payout,
-    penny_odd_payout,
-    get_penny_regrets,
-)
+from yomibot.data.helpers import flatten_dict
+from yomibot.data.card_data import generate_rps_sample, generate_penny_sample
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -72,7 +33,6 @@ log.setLevel(logging.ERROR)
 
 def clip_value(value):
     return max(0, min(value, 1))
-
 
 
 class RPSWolfModel:
@@ -251,6 +211,7 @@ class ClonedActor(pl.LightningModule):
         )
         return optimizer
 
+
 class ClonedFrequencyActor(ClonedActor):
     def predict_step(self, data, batch=None):
         with torch.no_grad():
@@ -369,7 +330,9 @@ class RegretActor(pl.LightningModule):
                     batch_dict=batch_dict,
                     state_x=state_x,
                 )
-            regrets = {choice:round(float(val),3) for choice, val in zip(choices, q_values)}
+            regrets = {
+                choice: round(float(val), 3) for choice, val in zip(choices, q_values)
+            }
             prob_dict[state] = regrets
         return prob_dict
 
@@ -378,15 +341,17 @@ class RegretActor(pl.LightningModule):
         q_values = flatten_dict(self.generate_q_values())
         max_diff = 0
         for key, value in empirical_regrets.items():
-            max_diff = max(max_diff, abs(value -q_values[key] ))
-        return round(max_diff,3)
+            max_diff = max(max_diff, abs(value - q_values[key]))
+        return round(max_diff, 3)
 
     def max_sign_diff(self, states):
         empirical_regrets = get_empirical_regrets(states)
         q_values = flatten_dict(self.generate_q_values())
         max_signdiff = 0
         for key, value in empirical_regrets.items():
-            max_signdiff = max(max_signdiff,  int(np.sign(value) != np.sign(q_values[key])) )
+            max_signdiff = max(
+                max_signdiff, int(np.sign(value) != np.sign(q_values[key]))
+            )
         return max_signdiff
 
     def predict_step(self, data, batch=None):
@@ -460,7 +425,6 @@ class RegretActor(pl.LightningModule):
         )
         regrets = batch.regret
 
-
         loss = ((regret_predictions - regrets).square().sum(dim=1)).mean()
         return loss
 
@@ -471,8 +435,6 @@ class RegretActor(pl.LightningModule):
         return optimizer
 
 
-
-
 class PennyRegretMinimiser(pl.LightningModule):
     def __init__(
         self,
@@ -480,7 +442,7 @@ class PennyRegretMinimiser(pl.LightningModule):
         num_layers=2,
         lr=0.01,
         M=100,
-        max_diff = 0.01,
+        max_diff=0.01,
         payout_dictionary=None,
         weight_decay=0.00001,
         frequency_epochs=100,
@@ -516,8 +478,11 @@ class PennyRegretMinimiser(pl.LightningModule):
         self.automatic_optimization = False
         self.update_epochs = update_epochs
         self.lt_memory = [
-            PennyReservoir("first_reservoir",payout_dictionary = payout_dictionary),
-            PennyReservoir("second_reservoir",payout_dictionary = invert_payout_dictionary(payout_dictionary))
+            PennyReservoir("first_reservoir", payout_dictionary=payout_dictionary),
+            PennyReservoir(
+                "second_reservoir",
+                payout_dictionary=invert_payout_dictionary(payout_dictionary),
+            ),
         ]
         self.starting_probs1 = {state: starting_probs1 for state in [1, 2, 3]}
         self.starting_probs2 = {state: starting_probs2 for state in [1, 2, 3]}
@@ -582,21 +547,11 @@ class PennyRegretMinimiser(pl.LightningModule):
                 )
 
             if frequency:
-                state_x1 = generate_penny_sample(state=1).state_x
-                state_x2 = generate_penny_sample(state=2).state_x
-                state_x3 = generate_penny_sample(state=3).state_x
-
                 preds, _, _ = self.frequency_nets[actor_index](
                     x_dict=x_dict,
                     edge_index_dict=edge_index_dict,
                     batch_dict=batch_dict,
                     state_x=state_x,
-                )
-                preds, _, _ = self.frequency_nets[actor_index](
-                    x_dict=x_dict,
-                    edge_index_dict=edge_index_dict,
-                    batch_dict=batch_dict,
-                    state_x=state_x3,
                 )
 
             else:
@@ -621,7 +576,7 @@ class PennyRegretMinimiser(pl.LightningModule):
         states1, actions1, rewards1 = [], [], []
         states2, actions2, rewards2 = [], [], []
 
-        for state in [1,2,3]:
+        for state in [1, 2, 3]:
             state1, state2 = generate_penny_sample(
                 payout_dictionary=self.payout_dictionary,
                 self_model=self_model,
@@ -643,7 +598,7 @@ class PennyRegretMinimiser(pl.LightningModule):
             for state in states1:
                 state.weight = 1
             for state in states2:
-                state.weight =  1
+                state.weight = 1
 
         return states1, actions1, rewards1, states2, actions2, rewards2
 
@@ -661,7 +616,11 @@ class PennyRegretMinimiser(pl.LightningModule):
         dataloader = DataLoader(states, batch_size=3000, shuffle=True)
 
         max_its = 0
-        while  (model_updated.max_sign_diff(states) > 0) and (model_updated.max_q_diff(states) >  self.max_diff) and (max_its < self.max_iterations):
+        while (
+            (model_updated.max_sign_diff(states) > 0)
+            and (model_updated.max_q_diff(states) > self.max_diff)
+            and (max_its < self.max_iterations)
+        ):
             trainer = pl.Trainer(
                 max_epochs=self.update_epochs,
                 logger=False,
@@ -673,8 +632,10 @@ class PennyRegretMinimiser(pl.LightningModule):
             max_its += 1
 
         max_its = 0
-        while  (model_updated.max_sign_diff(states) > 0) and (max_its < self.max_iterations):
-            print('In second iteration')
+        while (model_updated.max_sign_diff(states) > 0) and (
+            max_its < self.max_iterations
+        ):
+            print("In second iteration")
             trainer = pl.Trainer(
                 max_epochs=self.update_epochs,
                 logger=False,
@@ -683,6 +644,7 @@ class PennyRegretMinimiser(pl.LightningModule):
                 gradient_clip_val=0.5,
             )
             trainer.fit(model_updated, dataloader)
+            max_its += 1
 
         return model_updated
 
@@ -730,7 +692,6 @@ class PennyRegretMinimiser(pl.LightningModule):
             self_model = self.generate_prob_model(actor_index=0)
             other_model = self.generate_prob_model(actor_index=1)
 
-
         m1_metrics = flatten_dict(self_model, "model_1")
         m2_metrics = flatten_dict(other_model, "model_2")
 
@@ -759,18 +720,21 @@ class PennyRegretMinimiser(pl.LightningModule):
             self.actor_nets[1].actor_net, state_sample2
         )
 
-
         # get_empirical_regrets(state_sample1)
         self.actor_nets[1].generate_q_values()
         # self.actor_nets[1].max_sign_diff(state_sample2)
         # get_empirical_regrets(state_sample2)
 
-        emp_alpha = flatten_dict(get_empirical_ratios(states1, 'alpha'), 'play_hist1')
-        emp_beta = flatten_dict(get_empirical_ratios(states2, 'beta'), 'play_hist2')
-        emp_regret1 = flatten_dict(get_empirical_regrets(states1), 'emp_regret_1')
-        emp_regret2 = flatten_dict(get_empirical_regrets(states2), 'emp_regret_2')
-        model_1_q_values = flatten_dict(self.actor_nets[0].generate_q_values(), 'q_values_1')
-        model_2_q_values = flatten_dict(self.actor_nets[1].generate_q_values(), 'q_values_2')
+        emp_alpha = flatten_dict(get_empirical_ratios(states1, "alpha"), "play_hist1")
+        emp_beta = flatten_dict(get_empirical_ratios(states2, "beta"), "play_hist2")
+        emp_regret1 = flatten_dict(get_empirical_regrets(states1), "emp_regret_1")
+        emp_regret2 = flatten_dict(get_empirical_regrets(states2), "emp_regret_2")
+        model_1_q_values = flatten_dict(
+            self.actor_nets[0].generate_q_values(), "q_values_1"
+        )
+        model_2_q_values = flatten_dict(
+            self.actor_nets[1].generate_q_values(), "q_values_2"
+        )
 
         combined_metrics = {
             **m1_metrics,
@@ -780,76 +744,8 @@ class PennyRegretMinimiser(pl.LightningModule):
             **emp_regret1,
             **emp_regret2,
             **model_1_q_values,
-            **model_2_q_values
+            **model_2_q_values,
         }
         combined_metrics["epoch"] = current_epoch
 
         self.log_dict(combined_metrics)
-
-
-from yomibot.graph_models.helpers import get_nash_equilibria
-
-# A = np.array([[0, -1, 1], [1, 0, -1], [-1, 1, 0]])
-# A = np.array([[0, -1, 2], [1, 0, -1], [-1, 1, 0]])
-# A = np.array([[1, -1], [-1, 1]])
-# A = np.array([[1, -1], [-1, 1]])
-# A = np.array([[4, -1], [-1, 1]])
-
-A = np.array([[-4, 1], [1, -1]])
-
-player_1_optimum, player_2_optimum = get_nash_equilibria(A)
-
-
-non_standard_situation = [rps_non_standard_payout, rps_non_standard_payout_opponent]
-standard_situation = [rps_standard_payout, rps_standard_payout]
-
-# payout_dictionary = {1:(penny_standard_payout,penny_opponent_standard_payout), 2:(penny_standard_payout,penny_opponent_standard_payout),
-#                     3:(penny_standard_payout,penny_opponent_standard_payout)}
-
-# payout_dictionary = {1:(penny_non_standard_payout,penny_non_standard_payout_opponent), 2:(penny_non_standard_payout,penny_non_standard_payout_opponent),
-#                     3:(penny_non_standard_payout,penny_non_standard_payout_opponent)}
-
-
-#
-#
-payout_dictionary = {
-    1: (penny_standard_payout, penny_opponent_standard_payout),
-    2: (penny_non_standard_payout, penny_non_standard_payout_opponent),
-    3: (penny_non_standard_payout_opponent, penny_non_standard_payout),
-}
-
-actor_critic = PennyRegretMinimiser(
-    M=1000,
-    payout_dictionary=payout_dictionary,
-    weight_decay=0.00001,
-    lr=0.2,
-    update_epochs=500,
-    max_diff = 0.2,
-    max_iterations = 10,
-    frequency_epochs=100,
-    starting_probs1={"Odd": 0.8, "Even": 0.2},
-    starting_probs2={"Odd": 0.8, "Even": 0.2},
-)
-
-self = actor_critic
-
-metrics_callback = MetricsCallback()
-logger = TensorBoardLogger(save_dir=paths.log_paths, name="penny_logs")
-
-trainer = pl.Trainer(max_epochs=10, logger=logger, callbacks=[metrics_callback])
-trainer.fit(actor_critic, [0])
-
-
-logged_metrics = metrics_callback.metrics
-
-penny_df = turn_to_penny_df(logged_metrics)
-
-
-
-(penny_df
-    .pivot(index = ['state','epoch'], columns= 'policy', values = 'mean_policy')
-    .reset_index()
-    .query('state == 2')
-    .plot( x='alpha', y='beta')
-    # .tail()
-)
