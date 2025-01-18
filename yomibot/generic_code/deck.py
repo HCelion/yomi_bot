@@ -6,7 +6,7 @@ from typing import List, Union, Any
 from collections.abc import MutableSequence
 
 
-class Deck(cards, MutableSequence, ABC):
+class Deck(MutableSequence, ABC):
     """
     Class for containing cards and card operations.
     A deck is a composition of between 0 to 52 cards.

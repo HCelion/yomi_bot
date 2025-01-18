@@ -3,8 +3,11 @@ from itertools import product
 from copy import deepcopy
 from typing import List
 
+from src.generic_code.cards import Card
+
 rps_cards: List[str] = [
-    flavor + str(size) for flavor, size in product("RPS", [1, 2, 3])
+    Card(str(size), str(size), flavor)
+    for flavor, speed, damage in product("ADT", [1, 2, 3], [1, 2, 3])
 ]
 
 
