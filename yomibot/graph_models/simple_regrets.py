@@ -1,13 +1,6 @@
-from copy import deepcopy
-import pandas as pd
 import numpy as np
-from yomibot.graph_models.helpers import get_nash_equilibria
 from yomibot.data.card_data import (
     get_penny_regrets,
-    penny_standard_payout,
-    penny_opponent_standard_payout,
-    penny_non_standard_payout,
-    penny_non_standard_payout_opponent,
 )
 
 choices = ["Even", "Odd"]
@@ -71,68 +64,70 @@ def get_latest_regret(regret_history, sample=False, sample_size=1000):
     }
 
 
-A = np.array([[4, -1], [-1, 1]])
-player_1_optimum, player_2_optimum = get_nash_equilibria(A)
-
-
-starting_regrets1 = {"Even": 2, "Odd": 1, "epoch": -1}
-starting_regrets2 = {"Even": 1, "Odd": 2, "epoch": -1}
-# player_1_payout = penny_standard_payout
-# player_2_payout = penny_opponent_standard_payout
-player_1_payout = penny_non_standard_payout
-player_2_payout = penny_non_standard_payout_opponent
-
-regret_update_history1 = [starting_regrets1]
-regret_update_history2 = [starting_regrets2]
-player_1_regrets = deepcopy(starting_regrets1)
-player_2_regrets = deepcopy(starting_regrets2)
-player_1_play_history = [{**get_new_policy(starting_regrets1), **{"epoch": -1}}]
-player_2_play_history = [{**get_new_policy(starting_regrets2), **{"epoch": -1}}]
-
-for i in range(10000):
-    self_policy = get_latest_regret(regret_update_history1, sample=True, sample_size=1000)
-    other_policy = get_latest_regret(
-        regret_update_history2, sample=True, sample_size=1000
-    )
-    player_1_average = get_average_play_style(player_1_play_history)
-    player_2_average = get_average_play_style(player_2_play_history)
-    self_policy["epoch"] = i
-    other_policy["epoch"] = i
-    player_1_play_history.append(self_policy)
-    player_2_play_history.append(other_policy)
-    regret_updates1 = measure_regret_update(self_policy, other_policy, player_1_payout)
-    regret_updates2 = measure_regret_update(other_policy, self_policy, player_2_payout)
-    regret_updates1["epoch"] = i
-    regret_updates2["epoch"] = i
-    regret_update_history1.append(regret_updates1)
-    regret_update_history2.append(regret_updates2)
-
-play_history = (
-    pd.DataFrame(player_1_play_history)
-    .assign(even=lambda x: x["Even"].cumsum())
-    .assign(odd=lambda x: x["Odd"].cumsum())
-    .assign(alpha=lambda x: x.even / (x.even + x.odd))
-    .merge(
-        (
-            pd.DataFrame(player_2_play_history)
-            .assign(even=lambda x: x["Even"].cumsum())
-            .assign(odd=lambda x: x["Odd"].cumsum())
-            .assign(beta=lambda x: x.even / (x.even + x.odd))[["epoch", "beta"]]
-        ),
-        on="epoch",
-    )
-)
-
-
-play_history.plot(x="alpha", y="beta")
-
-
-(
-    pd.DataFrame(regret_update_history1)
-    .assign(even=lambda x: x["Even"].cumsum())
-    .assign(odd=lambda x: x["Odd"].cumsum())
-    .assign(
-        alpha=lambda x: np.where(x.even < 0, 0, x.even / (x.even + np.maximum(0, x.odd)))
-    )
-    # .plot(x='epoch', y = 'alpha')
-)
+# A = np.array([[4, -1], [-1, 1]])
+# player_1_optimum, player_2_optimum = get_nash_equilibria(A)
+#
+#
+# starting_regrets1 = {"Even": 2, "Odd": 1, "epoch": -1}
+# starting_regrets2 = {"Even": 1, "Odd": 2, "epoch": -1}
+# # player_1_payout = penny_standard_payout
+# # player_2_payout = penny_opponent_standard_payout
+# player_1_payout = penny_non_standard_payout
+# player_2_payout = penny_non_standard_payout_opponent
+#
+# regret_update_history1 = [starting_regrets1]
+# regret_update_history2 = [starting_regrets2]
+# player_1_regrets = deepcopy(starting_regrets1)
+# player_2_regrets = deepcopy(starting_regrets2)
+# player_1_play_history = [{**get_new_policy(starting_regrets1), **{"epoch": -1}}]
+# player_2_play_history = [{**get_new_policy(starting_regrets2), **{"epoch": -1}}]
+#
+# regret_update_history1[:10]
+#
+# for i in range(10000):
+#     self_policy = get_latest_regret(regret_update_history1, sample=True, sample_size=1000)
+#     other_policy = get_latest_regret(
+#         regret_update_history2, sample=True, sample_size=1000
+#     )
+#     player_1_average = get_average_play_style(player_1_play_history)
+#     player_2_average = get_average_play_style(player_2_play_history)
+#     self_policy["epoch"] = i
+#     other_policy["epoch"] = i
+#     player_1_play_history.append(self_policy)
+#     player_2_play_history.append(other_policy)
+#     regret_updates1 = measure_regret_update(self_policy, other_policy, player_1_payout)
+#     regret_updates2 = measure_regret_update(other_policy, self_policy, player_2_payout)
+#     regret_updates1["epoch"] = i
+#     regret_updates2["epoch"] = i
+#     regret_update_history1.append(regret_updates1)
+#     regret_update_history2.append(regret_updates2)
+#
+# play_history = (
+#     pd.DataFrame(player_1_play_history)
+#     .assign(even=lambda x: x["Even"].cumsum())
+#     .assign(odd=lambda x: x["Odd"].cumsum())
+#     .assign(alpha=lambda x: x.even / (x.even + x.odd))
+#     .merge(
+#         (
+#             pd.DataFrame(player_2_play_history)
+#             .assign(even=lambda x: x["Even"].cumsum())
+#             .assign(odd=lambda x: x["Odd"].cumsum())
+#             .assign(beta=lambda x: x.even / (x.even + x.odd))[["epoch", "beta"]]
+#         ),
+#         on="epoch",
+#     )
+# )
+#
+#
+# play_history.plot(x="alpha", y="beta")
+#
+#
+# (
+#     pd.DataFrame(regret_update_history1)
+#     .assign(even=lambda x: x["Even"].cumsum())
+#     .assign(odd=lambda x: x["Odd"].cumsum())
+#     .assign(
+#         alpha=lambda x: np.where(x.even < 0, 0, x.even / (x.even + np.maximum(0, x.odd)))
+#     )
+#     .plot(x='epoch', y = 'alpha')
+# )

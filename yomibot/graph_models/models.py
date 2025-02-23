@@ -2,6 +2,7 @@ from copy import deepcopy
 import logging
 import numpy as np
 import random
+import warnings
 from torch_geometric.data import Batch
 import torch.nn as nn
 import pytorch_lightning as pl
@@ -22,7 +23,7 @@ from yomibot.graph_models.helpers import (
 )
 from yomibot.data.helpers import flatten_dict
 from yomibot.data.card_data import generate_rps_sample, generate_penny_sample
-import warnings
+from yomibot.game_plays.game_trees import PennyGame, PennyNode
 
 warnings.filterwarnings("ignore")
 
@@ -709,10 +710,6 @@ class PennyRegretMinimiser(pl.LightningModule):
         state_sample1 = self.lt_memory[0].sample(self.M)
         state_sample2 = self.lt_memory[1].sample(self.M)
 
-        # get_empirical_ratios(state_sample1,'test')
-        # get_empirical_ratios(state_sample2,'test')
-        # get_empirical_regrets(state_sample1)
-        # get_empirical_regrets(state_sample2)
         self.actor_nets[0] = self.policy_update(
             self.actor_nets[0].actor_net, state_sample1
         )
@@ -720,15 +717,306 @@ class PennyRegretMinimiser(pl.LightningModule):
             self.actor_nets[1].actor_net, state_sample2
         )
 
-        # get_empirical_regrets(state_sample1)
         self.actor_nets[1].generate_q_values()
-        # self.actor_nets[1].max_sign_diff(state_sample2)
-        # get_empirical_regrets(state_sample2)
 
         emp_alpha = flatten_dict(get_empirical_ratios(states1, "alpha"), "play_hist1")
         emp_beta = flatten_dict(get_empirical_ratios(states2, "beta"), "play_hist2")
         emp_regret1 = flatten_dict(get_empirical_regrets(states1), "emp_regret_1")
         emp_regret2 = flatten_dict(get_empirical_regrets(states2), "emp_regret_2")
+        model_1_q_values = flatten_dict(
+            self.actor_nets[0].generate_q_values(), "q_values_1"
+        )
+        model_2_q_values = flatten_dict(
+            self.actor_nets[1].generate_q_values(), "q_values_2"
+        )
+
+        combined_metrics = {
+            **m1_metrics,
+            **m2_metrics,
+            **emp_alpha,
+            **emp_beta,
+            **emp_regret1,
+            **emp_regret2,
+            **model_1_q_values,
+            **model_2_q_values,
+        }
+        combined_metrics["epoch"] = current_epoch
+
+        self.log_dict(combined_metrics)
+
+
+class PennyTreeRegretMinimiser(pl.LightningModule):
+    def __init__(
+        self,
+        hidden_dim=4,
+        num_layers=2,
+        lr=0.01,
+        M=100,
+        max_diff=0.01,
+        payout_dictionary=None,
+        weight_decay=0.00001,
+        frequency_epochs=100,
+        update_epochs=100,
+        max_iterations=10,
+        starting_probs1=None,
+        starting_probs2=None,
+    ):
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        super(PennyTreeRegretMinimiser, self).__init__()
+        self.actor_nets = [
+            RegretActor(
+                PennyPolicyActorModel(hidden_dim=hidden_dim, num_layers=num_layers)
+            )
+            for _ in range(2)
+        ]
+        self.frequency_nets = [
+            ClonedFrequencyActor(
+                PennyPolicyActorModel(hidden_dim=hidden_dim, num_layers=num_layers)
+            )
+            for _ in range(2)
+        ]
+
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.max_diff = max_diff
+        self.max_iterations = max_iterations
+        self.M = M
+        self.undirected_transformer = ToUndirected()
+        self.payout_dictionary = payout_dictionary
+        self.frequency_epochs = frequency_epochs
+        self.automatic_optimization = False
+        self.update_epochs = update_epochs
+        self.payout_dictionary = payout_dictionary
+
+        self.reservoir_dict = {
+            0: PennyReservoir("first_reservoir", payout_dictionary=payout_dictionary),
+            1: PennyReservoir(
+                "second_reservoir",
+                payout_dictionary=invert_payout_dictionary(payout_dictionary),
+            ),
+        }
+
+        self.starting_probs1 = {state: starting_probs1 for state in [1, 2, 3]}
+        self.starting_probs2 = {state: starting_probs2 for state in [1, 2, 3]}
+
+    def forward(self, batch, actor_index=0):
+        if isinstance(batch, Batch):
+            x_dict, edge_index_dict, state_x, batch_dict = (
+                batch.x_dict,
+                batch.edge_index_dict,
+                batch.state_x,
+                batch.batch_dict,
+            )
+        else:
+            x_dict, edge_index_dict, state_x, batch_dict = (
+                batch.x_dict,
+                batch.edge_index_dict,
+                batch.state_x,
+                None,
+            )
+        policy, _, _ = self.actor_nets[actor_index](
+            x_dict=x_dict,
+            edge_index_dict=edge_index_dict,
+            batch_dict=batch_dict,
+            state_x=state_x,
+        )
+        return policy
+
+    def frequency_forward(self, batch, actor_index=0):
+        if isinstance(batch, Batch):
+            x_dict, edge_index_dict, batch_dict = (
+                batch.x_dict,
+                batch.edge_index_dict,
+                batch.batch_dict,
+            )
+        else:
+            x_dict, edge_index_dict, batch_dict = (
+                batch.x_dict,
+                batch.edge_index_dict,
+                None,
+            )
+        frequency, _, _ = self.frequency_nets[actor_index](
+            x_dict=x_dict, edge_index_dict=edge_index_dict, batch_dict=batch_dict
+        )
+        return frequency
+
+    def predict_step(self, data, batch=None, actor_index=0, frequency=False):
+        with torch.no_grad():
+            data = self.undirected_transformer(data)
+            if batch is not None:
+                x_dict, edge_index_dict, state_x, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.state_x,
+                    data.batch_dict,
+                )
+            else:
+                x_dict, edge_index_dict, state_x, batch_dict = (
+                    data.x_dict,
+                    data.edge_index_dict,
+                    data.state_x,
+                    None,
+                )
+
+            if frequency:
+                preds, _, _ = self.frequency_nets[actor_index](
+                    x_dict=x_dict,
+                    edge_index_dict=edge_index_dict,
+                    batch_dict=batch_dict,
+                    state_x=state_x,
+                )
+
+            else:
+                preds, _, _ = self.actor_nets[actor_index](
+                    x_dict=x_dict,
+                    edge_index_dict=edge_index_dict,
+                    batch_dict=batch_dict,
+                    state_x=state_x,
+                )
+
+        return preds
+
+    def generate_prob_model(self, actor_index=0, frequency=False):
+        if frequency:
+            prob_dict = self.frequency_nets[actor_index].generate_prob_model()
+        else:
+            prob_dict = self.actor_nets[actor_index].generate_prob_model()
+
+        return prob_dict
+
+    def collect_trajectory(self, self_model, opponent_model, epoch=None):
+        model_dict = {0: self_model, 1: opponent_model}
+        game = PennyGame(
+            payout_dictionary=self.payout_dictionary,
+            model_dict=model_dict,
+            reservoir_dict=self.reservoir_dict,
+        )
+        node = PennyNode(
+            state=1, game=game, player_0_action=None, player_1_action=None, player=0
+        )
+        node.get_average_value()
+
+        return
+
+    def compute_returns(self, rewards):
+        return torch.FloatTensor(rewards)
+
+    def policy_update(self, policy_model, states):
+        model_updated = RegretActor(
+            deepcopy(policy_model),
+            weight_decay=self.weight_decay,
+            lr=self.lr,
+            type="penny",
+        )
+        model_updated.actor_net._initialize_policy_head()
+        dataloader = DataLoader(states, batch_size=3000, shuffle=True)
+
+        max_its = 0
+        while (
+            (model_updated.max_sign_diff(states) > 0)
+            and (model_updated.max_q_diff(states) > self.max_diff)
+            and (max_its < self.max_iterations)
+        ):
+            trainer = pl.Trainer(
+                max_epochs=self.update_epochs,
+                logger=False,
+                enable_progress_bar=False,
+                callbacks=[checkpoint_callback],
+                gradient_clip_val=0.5,
+            )
+            trainer.fit(model_updated, dataloader)
+            max_its += 1
+
+        max_its = 0
+        while (model_updated.max_sign_diff(states) > 0) and (
+            max_its < self.max_iterations
+        ):
+            print("In second iteration")
+            trainer = pl.Trainer(
+                max_epochs=self.update_epochs,
+                logger=False,
+                enable_progress_bar=False,
+                callbacks=[checkpoint_callback],
+                gradient_clip_val=0.5,
+            )
+            trainer.fit(model_updated, dataloader)
+            max_its += 1
+
+        return model_updated
+
+    def frequency_update(self, states):
+        model_updated = ClonedFrequencyActor(
+            PennyPolicyActorModel(hidden_dim=self.hidden_dim, num_layers=self.num_layers),
+            weight_decay=self.weight_decay,
+            lr=self.lr,
+            type="penny",
+        )
+        dataloader = DataLoader(states, batch_size=256, shuffle=True)
+
+        trainer = pl.Trainer(
+            max_epochs=self.frequency_epochs,
+            logger=False,
+            enable_progress_bar=False,
+            callbacks=[checkpoint_callback],
+            # gradient_clip_val=0.5,
+        )
+        trainer.fit(model_updated, dataloader)
+
+        return model_updated
+
+    def configure_optimizers(self):
+        actor_optimizers = [
+            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            for net in self.actor_nets
+        ]
+
+        frequency_optimizers = [
+            optim.SGD(net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            for net in self.frequency_nets
+        ]
+        return actor_optimizers + frequency_optimizers
+
+    def training_step(self, batch, batch_idx):
+        current_epoch = self.current_epoch
+
+        if (current_epoch == 0) and self.starting_probs1:
+            for reservoir in self.reservoir_dict.values():
+                reservoir.clear_reservoir()
+            self_model = self.starting_probs1
+            other_model = self.starting_probs2
+        else:
+            self_model = self.generate_prob_model(actor_index=0)
+            other_model = self.generate_prob_model(actor_index=1)
+
+        m1_metrics = flatten_dict(self_model, "model_1")
+        m2_metrics = flatten_dict(other_model, "model_2")
+
+        self.collect_trajectory(
+            self_model=self_model,
+            opponent_model=other_model,
+            epoch=current_epoch,
+        )
+
+        # self.lt_memory[0].store_data(states1)
+        # self.lt_memory[1].store_data(states2)
+
+        state_sample1 = self.reservoir_dict[0].sample(self.M)
+        state_sample2 = self.reservoir_dict[0].sample(self.M)
+
+        self.actor_nets[0] = self.policy_update(
+            self.actor_nets[0].actor_net, state_sample1
+        )
+        self.actor_nets[1] = self.policy_update(
+            self.actor_nets[1].actor_net, state_sample2
+        )
+
+        emp_alpha = flatten_dict(
+            get_empirical_ratios(state_sample1, "alpha"), "play_hist1"
+        )
+        emp_beta = flatten_dict(get_empirical_ratios(state_sample2, "beta"), "play_hist2")
+        emp_regret1 = flatten_dict(get_empirical_regrets(state_sample1), "emp_regret_1")
+        emp_regret2 = flatten_dict(get_empirical_regrets(state_sample2), "emp_regret_2")
         model_1_q_values = flatten_dict(
             self.actor_nets[0].generate_q_values(), "q_values_1"
         )
