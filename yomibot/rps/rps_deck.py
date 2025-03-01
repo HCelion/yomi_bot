@@ -3,10 +3,10 @@ from itertools import product
 from copy import deepcopy
 from typing import List
 
-from src.generic_code.cards import Card
+from yomibot.generic_code.cards import Card
 
 rps_cards: List[str] = [
-    Card(str(size), str(size), flavor)
+    Card(str(speed), str(damage), flavor)
     for flavor, speed, damage in product("ADT", [1, 2, 3], [1, 2, 3])
 ]
 

@@ -5,11 +5,13 @@ import numpy as np
 import pandas as pd
 import ternary
 import pytorch_lightning as pl
-from pylab import mpl, plt
+from matplotlib import pyplot as plt
 from pytorch_lightning.callbacks import ModelCheckpoint
 from yomibot.common.paths import data_path
 from yomibot.data.card_data import PennyData
 from yomibot.data.helpers import unflatten_dict
+
+
 
 checkpoint_callback = ModelCheckpoint(save_top_k=0)
 
@@ -264,8 +266,7 @@ def empirical_frequencies(list_items):
 def plot_penny(df, optima):
     from pylab import plt
 
-    plt.style.use("bmh")
-    mpl.rcParams["font.family"] = "serif"
+
     states = [1, 2, 3]
     fig, axs = plt.subplots(3, 1, figsize=(6, 12))
 

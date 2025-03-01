@@ -8,24 +8,20 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.12"
 pytest = "^7.1.2"
-pandas = "^1.4.2"
-numpy = "^1.22.4"
-matplotlib = "^3.5.2"
-black = "^22.3.0"
-torch = "^2.4.0"
-pytorch-lightning = "^2.3.3"
-torch-geometric = "^2.5.3"
+torch-geometric = "^2.6.1"
+pytorch-lightning = "^2.5.0.post0"
+pandas = "^2.2.3"
+ternary = "^0.1"
+matplotlib = "^3.10.1"
 nashpy = "^0.0.41"
-python-ternary = "^1.0.8"
-tensorboard = "^2.18.0"
+tensorboard = "^2.19.0"
+tensorboardx = "^2.6.2.2"
 fastparquet = "^2024.11.0"
 
-[tool.poetry.dev-dependencies]
 
 [tool.poetry.group.dev.dependencies]
-ipykernel = "^6.29.5"
 pre-commit = "^3.8.0"
 
 [build-system]
