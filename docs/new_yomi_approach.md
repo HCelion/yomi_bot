@@ -241,3 +241,45 @@ $$
 \text{Retrain } \Pi \text{ on samples from } L
 \end{array}
 $$
+
+## A working approach
+
+The regret based approach laid out in these papers worked well
+[The OG CRM](https://proceedings.neurips.cc/paper/2007/file/08d98638c6fcd194a4b1e6992063e944-Paper.pdf)
+[MC CRM](https://proceedings.neurips.cc/paper_files/paper/2009/file/00411460f7c92d2124a67ea0f4cb5f85-Paper.pdf)
+[Deep CRM](https://proceedings.mlr.press/v97/brown19b/brown19b.pdf)
+
+## The value of nested Penny matching
+
+A useful testbed for solving stochastic games is the nested Penny Matching game. Instead of playing a single Penny matching game, another game is being played based on the behaviour of the players in the first game.
+There are two flavours to this. The game always starts for the first round in state $1$.
+Depending on another condition the state of the second round is either $2$ or $3$.
+There are essentially two pure versions:
+
+Scenario 1: Player 1's action determines the state of which game is being played, say $2$ for $'Even'$ and $3$ for $'Odd'$
+Scenario 2: Whether Player 1 wins decides whether the game moves to state $2$ or $3$.
+
+Let $V_{2/3}$ be player $1$s value in game $2$ and $3$ respectively. The payoff matrices for the game in state $1$
+are for the first
+
+$$
+P^1_1 = \left(\begin{array}{cc}
+P_{11} + \gamma V_2 &  P_{12} + \gamma V_2 \\
+P_{21} + \gamma V_3 &  P_{22} + \gamma V_3
+\end{array}
+\right)
+$$
+
+and for player $2$ it would be $P^1_2 = -P^1_1$.
+
+In the second scenario where for sake of simplicity we assume that $'Even'/'Even'$ and $'Odd'/'Odd'$ are the winning states for $1$ we have
+
+$$
+P^2_1 = \left(\begin{array}{cc}
+P_{11} + \gamma V_2 &  P_{12} + \gamma V_3 \\
+P_{21} + \gamma V_3 &  P_{22} + \gamma V_2
+\end{array}
+\right)
+$$
+
+The values can be calculated at any point in time and the expected values of the games, as well as the regrets can be explicitly calculated. We can generally set $\gamma$ to $1$.

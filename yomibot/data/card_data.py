@@ -1,7 +1,4 @@
-import os
 import torch
-import numpy as np
-import pandas as pd
 from random import choice, choices, shuffle
 from torch import zeros
 from torch_geometric.data import HeteroData, Dataset
@@ -315,14 +312,6 @@ def penny_non_standard_payout(card_1, card_2):
     if card_combo in [("Even", "Even")]:
         return +4
     elif card_combo in [("Odd", "Odd")]:
-        return +1
-    else:
-        return -1
-
-
-def penny_opponent_standard_payout(card_1, card_2):
-    card_combo = (card_1, card_2)
-    if card_combo in [("Odd", "Even"), ("Even", "Odd")]:
         return +1
     else:
         return -1
@@ -706,64 +695,6 @@ def generate_penny_sample(
         return penny_data, other_data
 
     return penny_data
-
-
-#
-# from yomibot.graph_models.helpers import (
-#     get_empirical_regrets,
-#     PennyReservoir,
-# )
-#
-#
-# self_model = {1:{'Even':0.2, 'Odd':0.8}, 2:{'Even':0.2, 'Odd':0.8}, 3:{'Even':0.2, 'Odd':0.8}}
-# opponent_model = {1:{'Even':0.2, 'Odd':0.8}, 2:{'Even':0.2, 'Odd':0.8}, 3:{'Even':0.2, 'Odd':0.8}}
-# payout_dictionary = {1:(penny_standard_payout, penny_opponent_standard_payout), 2:(penny_standard_payout, penny_opponent_standard_payout), 3:(penny_standard_payout, penny_opponent_standard_payout)}
-# reverse_dictionary = {1:(penny_opponent_standard_payout, penny_standard_payout), 2:(penny_opponent_standard_payout, penny_standard_payout), 3:(penny_opponent_standard_payout, penny_standard_payout)}
-# data_sample = [generate_penny_sample(self_model=self_model, opponent_model=opponent_model,  payout_dictionary=payout_dictionary)]
-# data_sample_reverse = [generate_penny_sample(self_model=self_model, opponent_model=opponent_model,  payout_dictionary=reverse_dictionary)]
-#
-# data = data_sample[0]
-#
-# container = data.serialise()
-#
-# PennyData.deserialise(container).regret
-# data.regret
-#
-#
-# regret_dict = {'Even':container['regret.Even'],'Odd':container['regret.Odd']}
-#
-# choices = data['my_hand'].choices
-# regret = torch.tensor([regret_dict[choice] for choice in choices]).reshape(-1,1)
-#
-# data.regret
-# regret
-#
-# {action:float(regret) for action, regret in zip(data['my_hand'].choices , data.regret)}
-#
-# get_empirical_regrets(data_sample)
-# get_empirical_regrets(data_sample_reverse)
-#
-# from yomibot.common.paths import data_path
-# inverted_dictionary = invert_payout_dictionary(payout_dictionary)
-# reservoir = PennyReservoir( 'test_reservoir', payout_dictionary=payout_dictionary)
-# inverse_reservoir = PennyReservoir( 'test_reservoir_invers', payout_dictionary=inverted_dictionary)
-#
-# reservoir.clear_reservoir()
-# inverse_reservoir.clear_reservoir()
-#
-# reservoir.store_data(data_sample)
-# reconstruction = reservoir.sample(10)
-#
-# inverse_reservoir.store_data(data_sample_reverse)
-# inverse_reconstruction = inverse_reservoir.sample(10)
-#
-#
-#
-# get_empirical_regrets(data_sample)
-# get_empirical_regrets(reconstruction)
-# get_empirical_regrets(data_sample_reverse)
-# get_empirical_regrets(inverse_reconstruction)
-# #
 
 
 class CardDataset(Dataset):

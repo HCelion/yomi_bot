@@ -548,7 +548,7 @@ V_{\theta&#39;&#39;}(s_{t+n}) \\
 \text{Train } \pi&#39; \text{ by minimising }  L= -\sum  A(s_t) \log
 p&#39;(a|s_t) \\
 \text{Calculate mean utility } u_{\pi} \text{ from the } N_{update}
-\text{ sample } \\
+\text{ samples } \\
 \text{Play } N_{update} \text{ episodes using }\Pi \text{ and calculate
 utility } u_{\Pi} \\
 \text{If } u_\pi &gt; u_{\Pi} \text{ set } N_{next} = N_{W} \text{
@@ -561,5 +561,63 @@ minimize } L = - \sum \mathbb{I}_{a_t} \log\pi&#39;&#39;(a_t|s_t) \\
 \text{Retrain } \Pi \text{ on samples from } L
 \end{array}
 \]</span></p>
+<h2 id="a-working-approach">A working approach</h2>
+<p>The regret based approach laid out in these papers worked well <a
+href="https://proceedings.neurips.cc/paper/2007/file/08d98638c6fcd194a4b1e6992063e944-Paper.pdf">The
+OG CRM</a> <a
+href="https://proceedings.neurips.cc/paper_files/paper/2009/file/00411460f7c92d2124a67ea0f4cb5f85-Paper.pdf">MC
+CRM</a> <a
+href="https://proceedings.mlr.press/v97/brown19b/brown19b.pdf">Deep
+CRM</a></p>
+<h2 id="the-value-of-nested-penny-matching">The value of nested Penny
+matching</h2>
+<p>A useful testbed for solving stochastic games is the nested Penny
+Matching game. Instead of playing a single Penny matching game, another
+game is being played based on the behaviour of the players in the first
+game. There are two flavours to this. The game always starts for the
+first round in state <span class="math inline">\(1\)</span>. Depending
+on another condition the state of the second round is either <span
+class="math inline">\(2\)</span> or <span
+class="math inline">\(3\)</span>. There are essentially two pure
+versions:</p>
+<p>Scenario 1: Player 1’s action determines the state of which game is
+being played, say <span class="math inline">\(2\)</span> for <span
+class="math inline">\(&#39;Even&#39;\)</span> and <span
+class="math inline">\(3\)</span> for <span
+class="math inline">\(&#39;Odd&#39;\)</span> Scenario 2: Whether Player
+1 wins decides whether the game moves to state <span
+class="math inline">\(2\)</span> or <span
+class="math inline">\(3\)</span>.</p>
+<p>Let <span class="math inline">\(V_{2/3}\)</span> be player <span
+class="math inline">\(1\)</span>s value in game <span
+class="math inline">\(2\)</span> and <span
+class="math inline">\(3\)</span> respectively. The payoff matrices for
+the game in state <span class="math inline">\(1\)</span> are for the
+first</p>
+<p><span class="math display">\[
+P^1_1 = \left(\begin{array}{cc}
+P_{11} + \gamma V_2 &amp;  P_{12} + \gamma V_2 \\
+P_{21} + \gamma V_3 &amp;  P_{22} + \gamma V_3
+\end{array}
+\right)
+\]</span></p>
+<p>and for player <span class="math inline">\(2\)</span> it would be
+<span class="math inline">\(P^1_2 = -P^1_1\)</span>.</p>
+<p>In the second scenario where for sake of simplicity we assume that
+<span class="math inline">\(&#39;Even&#39;/&#39;Even&#39;\)</span> and
+<span class="math inline">\(&#39;Odd&#39;/&#39;Odd&#39;\)</span> are the
+winning states for <span class="math inline">\(1\)</span> we have</p>
+<p><span class="math display">\[
+P^2_1 = \left(\begin{array}{cc}
+P_{11} + \gamma V_2 &amp;  P_{12} + \gamma V_3 \\
+P_{21} + \gamma V_3 &amp;  P_{22} + \gamma V_2
+\end{array}
+\right)
+\]</span></p>
+<p>The values can be calculated at any point in time and the expected
+values of the games, as well as the regrets can be explicitly
+calculated. We can generally set <span
+class="math inline">\(\gamma\)</span> to <span
+class="math inline">\(1\)</span>.</p>
 </body>
 </html>
